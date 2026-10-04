@@ -1,37 +1,14 @@
-```cpp
+
 #pragma once
 
-#include <SFML/Graphics.hpp>
+#include "Common.h"
 
 #include <string>
 #include <vector>
 
-    using std::string;
+using std::string;
 using std::vector;
 
-struct AttackParams
-{
-    int bullets = 5;
-    float speed = 8.f;
-    float spread = 20.f;
-
-    bool operator==(const AttackParams &o) const
-    {
-        return bullets == o.bullets &&
-               speed == o.speed &&
-               spread == o.spread;
-    }
-};
-
-namespace Syntax
-{
-    inline const sf::Color bg(32, 32, 31);
-    inline const sf::Color keyword(190, 116, 227);
-    inline const sf::Color orange(230, 164, 92);
-    inline const sf::Color green(160, 200, 80);
-    inline const sf::Color comment(102, 112, 133);
-    inline const sf::Color text(208, 210, 216);
-}
 
 class ShiroTerminal
 {
@@ -163,4 +140,3 @@ private:
 
     void parse();
 };
-```
