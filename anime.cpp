@@ -17,8 +17,8 @@
 //
 // ---------------- GIT: everyday saving ----------------
 // git add .
-// git commit -m "what I did"
-// git push
+// git commit -m "what I did"d
+// git pushdd
 //
 // git restore anime.cpp   (undo uncommitted edits)
 #include <iostream>
@@ -2017,7 +2017,8 @@ public:
         None,
         GrassFight,
         BossFight,
-        ShooterFight
+        ShooterFight,
+        EnterCity
     };
 
     Overworld()
@@ -2090,6 +2091,13 @@ public:
         pos = {TILE * 3.f, TILE * 8.f};
         stepAccum = 0.f;
         talking = false;
+    }
+
+    void returnFromCity()
+    {
+        room = 0;
+        pos = {TILE * (W - 2.f), TILE * 7.5f};
+        stepAccum = 0.f;
     }
 
     void setUnlocked(bool u) { unlocked = u; }
@@ -2190,9 +2198,7 @@ public:
 
         if (under == 'D' && unlocked && room == 0)
         {
-            room = 1;
-            pos = {TILE * 1.8f, TILE * 7.5f};
-            return Request::None;
+            return Request::EnterCity;
         }
 
         if (under == 'B' && room == 1)
@@ -4369,8 +4375,13 @@ public:
         w.setView(w.getDefaultView());
         w.clear(sf::Color(5, 6, 15));
 
-        float ox = clamp(px * CW - 640.f, 0.f, W * CW - 1280.f);
-        float oy = clamp(py * CH - 360.f, 0.f, H * CH - 720.f);
+        const float mapW = W * CW;
+        const float mapH = H * CH;
+
+        float ox = (mapW <= 1280.f) ? (mapW - 1280.f) / 2.f
+                                    : clamp(px * CW - 640.f, 0.f, mapW - 1280.f);
+        float oy = (mapH <= 720.f) ? (mapH - 720.f) / 2.f
+                                   : clamp(py * CH - 360.f, 0.f, mapH - 720.f);
         int x0 = static_cast<int>(ox / CW);
         int y0 = static_cast<int>(oy / CH);
 
@@ -4490,7 +4501,7 @@ private:
     float rnd()
     {
         seed = seed * 1664525u + 1013904223u;
-        return static_cast<float>(seed) / 4294967296.f;
+        return static_cast<float>(seed >> 8) / 16777216.f; // always < 1.0
     }
 
     bool solidAt(int x, int y) const
@@ -4884,14 +4895,8 @@ int main()
     GradeScene grading;
     HtmlShooterScreen htmlShooter;
     BattleStats stats;
-    enum class Request
-    {
-        None,
-        GrassFight,
-        BossFight,
-        ShooterFight,
-        EnterCity
-    };
+    AsciiCity city;
+    bool cityActive = false; // true while walking around the ASCII city
     bool overworldActive = false; // true once you leave the dialogue
     bool prevBattle = false;      // lets us detect "battle just ended"
     bool beatShiro = false;       // story flag
@@ -5551,10 +5556,6 @@ int main()
             // The pledge gets the event first. It's an else-if so the
             // same E press that ends Shiro's dialogue (and opens the
             // pledge) can't also accept it.
-            if (results.active())
-            {
-                results.handleEvent(*event);
-            }
             if (grading.active())
             {
                 grading.handleEvent(*event);
@@ -5575,6 +5576,18 @@ int main()
                     introBoss = true;
                     introTimer = introLength;
                 }
+            }
+            else if (cityActive)
+            {
+                AsciiCity::Request r = city.handleEvent(*event);
+
+                if (r == AsciiCity::Request::Exit)
+                {
+                    cityActive = false;
+                    overworld.returnFromCity();
+                }
+                else if (r == AsciiCity::Request::Shooter)
+                    htmlShooter.open(editorFont);
             }
             else if (overworldActive && !shiroBattle && introTimer <= 0.f)
             {
@@ -6275,7 +6288,7 @@ int main()
         if (resultTimer > 0.f)
             resultTimer -= dt;
 
-        if (overworldActive && !shiroBattle && !pledge.active() && !results.active() && !grading.active() && !htmlShooter.active() && resultTimer <= 0.f)
+        if (overworldActive && !cityActive && !shiroBattle && !pledge.active() && !results.active() && !grading.active() && !htmlShooter.active() && resultTimer <= 0.f)
         {
             if (introTimer > 0.f)
             {
@@ -6291,13 +6304,21 @@ int main()
             {
                 Overworld::Request req = overworld.update(dt);
 
-                if (req != Overworld::Request::None)
+                if (req == Overworld::Request::EnterCity)
+                {
+                    cityActive = true;
+                    city.enter();
+                }
+                else if (req != Overworld::Request::None)
                 {
                     introBoss = (req == Overworld::Request::BossFight);
                     introTimer = introLength;
                 }
             }
         }
+
+        if (cityActive && !htmlShooter.active())
+            city.update(dt);
 
         // battle just ended -> back to the overworld
         if (prevBattle && !shiroBattle && overworldActive)
@@ -6597,15 +6618,18 @@ int main()
 
             else if (overworldActive)
             {
-                overworld.draw(
-                    window,
-                    editorFont,
-                    playerHP,
-                    100,
-                    beatShiro,
-                    introTimer > 0.f
-                        ? 1.f - introTimer / introLength
-                        : -1.f);
+                if (cityActive)
+                    city.draw(window, editorFont);
+                else
+                    overworld.draw(
+                        window,
+                        editorFont,
+                        playerHP,
+                        100,
+                        beatShiro,
+                        introTimer > 0.f
+                            ? 1.f - introTimer / introLength
+                            : -1.f);
 
                 // drawn last so it sits on top of the map
                 pledge.draw(window, editorFont);
