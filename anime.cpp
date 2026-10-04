@@ -1,7 +1,26 @@
 // cd "C:\Users\Noah\Desktop\visual novel"
 
 // g++ anime.cpp -I"C:\SFML\include" -L"C:\SFML\lib" -lsfml-graphics -lsfml-window -lsfml-system -o anime.exe
-
+// ---------------- GIT: stop tracking exe + backups ----------------
+// Run each line separately in PowerShell, in this folder.
+//
+// type .gitignore
+//   (if it prints nothing, run the next line to fill it)
+// Set-Content .gitignore "*.exe`ntest.cpp`nanime_backup*.cpp`nanime_mybackup.cpp`nanime_before_build.cpp"
+//
+// git rm --cached anime.exe anime_mybackup.cpp anime_backup_cursor.cpp anime_before_build.cpp
+// git add .
+// git commit -m "stop tracking exe and backups"
+// git push
+//
+// git status   (should say: nothing to commit, working tree clean)
+//
+// ---------------- GIT: everyday saving ----------------
+// git add .
+// git commit -m "what I did"
+// git push
+//
+// git restore anime.cpp   (undo uncommitted edits)
 #include <iostream>
 #include <string>
 #include <vector>
@@ -2886,6 +2905,9 @@ int main()
     bool prevBattle = false;      // lets us detect "battle just ended"
     bool beatShiro = false;       // story flag
     bool lastWasBoss = false;
+    float resultTimer = 0.f;
+    bool resultWon = false;
+    string resultText = "";
     bool introBoss = false; // which fight the transition leads to
     float introTimer = 0.f; // battle transition countdown
     const float introLength = 0.8f;
@@ -4234,7 +4256,7 @@ int main()
 
         pledge.update(dt);
 
-        if (overworldActive && !shiroBattle && !pledge.active())
+        if (overworldActive && !shiroBattle && !pledge.active() && resultTimer <= 0.f)
         {
             if (introTimer > 0.f)
             {
@@ -4261,6 +4283,10 @@ int main()
         // battle just ended -> back to the overworld
         if (prevBattle && !shiroBattle && overworldActive)
         {
+            resultWon = (shiroHP <= 0);
+            resultTimer = 2.5f;
+            resultText = resultWon ? (lastWasBoss ? "SHIRO DEFEATED" : "BUG SQUASHED")
+                                   : "YOU FELL...";
             if (shiroHP <= 0 && lastWasBoss)
                 beatShiro = true;
 
@@ -4560,6 +4586,23 @@ int main()
 
                 // drawn last so it sits on top of the map
                 pledge.draw(window, editorFont);
+                if (resultTimer > 0.f)
+                {
+                    window.setView(window.getDefaultView());
+
+                    sf::RectangleShape veil({1280.f, 720.f});
+                    veil.setFillColor(sf::Color(0, 0, 0, 150));
+                    window.draw(veil);
+
+                    sf::Text banner(font, resultText, 56);
+                    banner.setFillColor(resultWon ? sf::Color(240, 200, 110)
+                                                  : sf::Color(255, 90, 110));
+                    sf::FloatRect b = banner.getLocalBounds();
+                    banner.setOrigin({b.position.x + b.size.x / 2.f,
+                                      b.position.y + b.size.y / 2.f});
+                    banner.setPosition({640.f, 360.f});
+                    window.draw(banner);
+                }
             }
 
             // =====================================================
