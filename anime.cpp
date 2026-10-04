@@ -3458,19 +3458,35 @@ int main()
     buildButtonText.setPosition({590.f, 498.f});
     string buildOutput = "Press BUILD (or F5) to compile.";
     bool buildOk = true;
+    bool soraPassed = false;
 
     auto runBuild = [&]()
     {
         BuildResult r = compileCode(code);
         buildOk = r.ok;
         buildOutput = r.output;
+        if (r.ok && code.find("how you coded this") != string::npos)
+            soraPassed = true;
 
         if (r.ok)
         {
             // your test code uses cin, so give it its own console window
             system("start \"\" cmd /k test.exe");
         }
+        if (soraPassed)
+        {
+            sf::Text grade(editorFont, "GRADE: C", 28);
+            grade.setFillColor(sf::Color(240, 200, 110));
+            grade.setPosition({45.f, 570.f});
+            window.draw(grade);
+
+            sf::Text quote(editorFont, "SORA: ...Didn't know you were so technical.", 16);
+            quote.setFillColor(sf::Color::White);
+            quote.setPosition({45.f, 610.f});
+            window.draw(quote);
+        }
     };
+    
 
     // =========================================================
     // MAIN LOOP
@@ -3621,20 +3637,7 @@ int main()
                     if (editorOpen &&
                         buildButton.getGlobalBounds().contains({mouseX, mouseY}))
                     {
-                        ofstream outFile("test.cpp");
-
-                        if (outFile.is_open())
-                        {
-                            outFile << code;
-
-                            outFile.close();
-
-                            cout << "CODE SAVED\n";
-                        }
-                        else
-                        {
-                            cout << "FAILED TO SAVE\n";
-                        }
+                        runBuild();
                     }
 
                     // =================================================
@@ -3932,14 +3935,15 @@ int main()
                     // =================================================
                     // TAB
                     // =================================================
-
                     else if (keyEvent->code == sf::Keyboard::Key::Tab)
                     {
                         code.insert(cursorPosition, "    ");
-
                         cursorPosition += 4;
                     }
-
+                    else if (keyEvent->code == sf::Keyboard::Key::F5)
+                    {
+                        runBuild();
+                    }
                     // =================================================
                     // BACKSPACE
                     // =================================================
@@ -4285,8 +4289,8 @@ int main()
         {
             resultWon = (shiroHP <= 0);
             resultTimer = 2.5f;
-            resultText = resultWon ? (lastWasBoss ? "SHIRO DEFEATED" : "BUG SQUASHED")
-                                   : "YOU FELL...";
+            resultText = resultWon ? (lastWasBoss ? "Oh Wow... BLank won't ever lose to you though..." : "BUG SQUASHED")
+                                   : "YOU FELL OFF THE EDGE PUNK!!!!!";
             if (shiroHP <= 0 && lastWasBoss)
                 beatShiro = true;
 
@@ -4600,6 +4604,9 @@ int main()
                     sf::FloatRect b = banner.getLocalBounds();
                     banner.setOrigin({b.position.x + b.size.x / 2.f,
                                       b.position.y + b.size.y / 2.f});
+                    float maxW = 1180.f;
+                    if (b.size.x > maxW)
+                        banner.setScale({maxW / b.size.x, maxW / b.size.x});
                     banner.setPosition({640.f, 360.f});
                     window.draw(banner);
                 }
@@ -4729,7 +4736,8 @@ int main()
                     window.draw(soraNameBox);
 
                     window.draw(soraDialogueName);
-
+                    if (soraPassed)
+                        dialogueTextS1.setString("C. Didn't know you were so technical.");
                     window.draw(dialogueTextS1);
                 }
 
@@ -4754,6 +4762,7 @@ int main()
 
                 if (editorOpen)
                 {
+                    
                     window.draw(editorBackground);
 
                     window.draw(editorTitleBar);
@@ -4965,9 +4974,18 @@ int main()
                         cursor.setPosition({cursorX, cursorY});
                         window.draw(cursor);
                     }
+                    window.draw(buildButton);
+                    buildButtonText.setFillColor(sf::Color::White);
+                    window.draw(buildButtonText);
+
+                    sf::Text outText(editorFont, buildOutput.substr(0, 300), 12);
+                    outText.setFillColor(buildOk ? sf::Color(0, 235, 190) : sf::Color(255, 90, 110));
+                    outText.setPosition({45.f, 540.f});
+                    window.draw(outText);
                 }
             }
         }
+        
         window.draw(crt);
         window.display();
     }
