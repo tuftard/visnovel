@@ -376,6 +376,31 @@ float playerHitRadius = 5.f; // small hitbox, bullet-hell style
 float hitCooldown = 0.f;     // invincibility frames after a hit
 float enemySpawnTimer = 1.f;
 
+// 1000 points = next letter. A = start, Z = max.
+inline char scoreLetter(int score)
+{
+    return static_cast<char>('A' + clamp(score / 1000, 0, 25));
+}
+
+// cyan -> green -> yellow -> orange -> pink -> purple
+inline sf::Color letterColor(char c)
+{
+    static const sf::Color stops[6] = {
+        {0, 229, 255}, {80, 255, 120}, {255, 220, 60}, {255, 140, 40}, {255, 60, 160}, {170, 90, 255}};
+
+    float f = clamp((c - 'A') / 25.f, 0.f, 1.f) * 5.f;
+    int a = static_cast<int>(f);
+    int b = min(a + 1, 5);
+    float k = f - a;
+
+    auto m = [&](int x, int y)
+    { return static_cast<std::uint8_t>(x + (y - x) * k); };
+
+    return sf::Color(m(stops[a].r, stops[b].r),
+                     m(stops[a].g, stops[b].g),
+                     m(stops[a].b, stops[b].b));
+}
+
 struct BattleHud
 {
     int playerHP = 100;
@@ -386,6 +411,32 @@ struct BattleHud
     int bullets = 5;
     float spread = 20.f;
 };
+void drawNeonLetter(sf::RenderWindow &w, const sf::Font &f, char c,
+                    sf::Vector2f pos, unsigned size, bool centre = false)
+{
+    sf::Color col = letterColor(c);
+    sf::Text t(f, string(1, c), size);
+
+    if (centre)
+    {
+        sf::FloatRect b = t.getLocalBounds();
+        t.setOrigin({b.position.x + b.size.x / 2.f, b.position.y + b.size.y / 2.f});
+    }
+    t.setPosition(pos);
+
+    t.setFillColor(sf::Color::Transparent);
+    for (int i = 5; i >= 1; i--)
+    {
+        t.setOutlineColor(sf::Color(col.r, col.g, col.b, 22));
+        t.setOutlineThickness(i * 3.f);
+        w.draw(t);
+    }
+
+    t.setFillColor(sf::Color(8, 8, 20));
+    t.setOutlineColor(col);
+    t.setOutlineThickness(2.f);
+    w.draw(t);
+}
 
 class RhythmTrack
 {
@@ -1119,8 +1170,8 @@ private:
         text(w, f, "P1  " + to_string(h.playerHP), {28.f, 11.f}, 11,
              Theme::text);
         text(w, f, "SHIRO", {147.f, 11.f}, 11, Theme::text);
-        text(w, f, "SCORE " + to_string(h.score), {208.f, 18.5f}, 11,
-             Theme::gold, 2);
+        text(w, f, string("RANK ") + scoreLetter(h.score), {208.f, 18.5f}, 11,
+                    letterColor(scoreLetter(h.score)), 2);
         text(w, f, "ATK PREVIEW", {27.f, 66.f}, 9, Theme::gold, 1);
         text(w, f, "COMBO x" + to_string(h.combo), {118.f, 190.5f}, 11,
              sf::Color(255, 255, 255), 1);
@@ -1228,6 +1279,7 @@ public:
 
     bool focused() const { return focused_; }
     void blur() { focused_ = false; }
+    void setRank(char c) { rank_ = c; }
     const AttackParams &pending() const { return pending_; }
     const AttackParams &applied() const { return applied_; }
 
@@ -1509,6 +1561,7 @@ public:
         // ---------------- telemetry ----------------
         box(w, 746, 545, 500, 88, sf::Color(3, 8, 15, 230), sf::Color(0, 190, 220, 80), 1.f);
         text(w, "TELEMETRY", 760, 553, 10, cyan);
+        text(w, string("RANK  ") + rank_, 850, 551, 13, letterColor(rank_));
         text(w, "BAR = BUILT   PINK TICK = TYPED, NOT BUILT", 1236, 555, 8, dim, 2);
 
         auto stat = [&](float x, const string &name, const string &value,
@@ -1571,6 +1624,7 @@ private:
 
     bool focused_ = false;
     bool busy_ = false;
+    char rank_ = 'A';
     bool hasError = false;
 
     sf::Vector2f mouse_{0.f, 0.f};
@@ -2477,6 +2531,230 @@ private:
         w.draw(t);
     }
 };
+struct BattleStats
+{
+    int notesHit = 0;
+    int hitsTaken = 0;
+    int longestCombo = 0;
+    vector<AttackParams> builds;
+
+    bool fullCombo() const { return hitsTaken == 0 && notesHit > 0; }
+};
+
+class ResultsScreen
+{
+public:
+    bool active() const { return active_; }
+
+    void open(const BattleStats &s, int score, const string &subtitle)
+    {
+        stats_ = s;
+        score_ = score;
+        sub_ = subtitle;
+        t_ = 0.f;
+        active_ = true;
+
+        vector<pair<AttackParams, int>> counts;
+        for (const auto &b : stats_.builds)
+        {
+            bool found = false;
+            for (auto &c : counts)
+                if (c.first == b)
+                {
+                    c.second++;
+                    found = true;
+                    break;
+                }
+            if (!found)
+                counts.push_back({b, 1});
+        }
+
+        unique_ = static_cast<int>(counts.size());
+        favourite_ = "none";
+
+        int best = 0;
+        for (const auto &c : counts)
+            if (c.second > best)
+            {
+                best = c.second;
+                char buf[64];
+                snprintf(buf, sizeof buf, "%d bullets / %d deg / spd %.1f",
+                         c.first.bullets, static_cast<int>(c.first.spread),
+                         c.first.speed);
+                favourite_ = buf;
+            }
+    }
+
+    void update(float dt)
+    {
+        if (active_)
+            t_ += dt;
+    }
+
+    bool handleEvent(const sf::Event &e)
+    {
+        if (!active_)
+            return false;
+
+        const auto *k = e.getIf<sf::Event::KeyPressed>();
+        if (!k)
+            return false;
+
+        bool confirm = k->code == sf::Keyboard::Key::E ||
+                       k->code == sf::Keyboard::Key::Enter ||
+                       k->code == sf::Keyboard::Key::Space;
+
+        if (confirm && t_ > 4.2f)
+        {
+            active_ = false;
+            return true;
+        }
+        return false;
+    }
+
+    void draw(sf::RenderWindow &w, const sf::Font &font) const
+    {
+        if (!active_)
+            return;
+
+        w.setView(w.getDefaultView());
+
+        box(w, 0.f, 0.f, 1280.f, 720.f, sf::Color(0, 0, 0, 215));
+        box(w, 340.f, 40.f, 600.f, 640.f, sf::Color(10, 10, 25, 245),
+            sf::Color(190, 110, 235), 2.f);
+
+        char grade = scoreLetter(score_);
+        float gA = clamp(t_ / 0.5f, 0.f, 1.f);
+
+        label(w, font, "GRADE", 640.f, 58.f, 18, sf::Color(110, 120, 160), true);
+
+        if (gA > 0.f)
+        {
+            float pulse = 1.f + 0.04f * std::sin(t_ * 5.f);
+            drawNeonLetter(w, font, grade, {640.f, 150.f},
+                           static_cast<unsigned>(110.f * gA * pulse), true);
+        }
+
+        label(w, font, sub_, 640.f, 230.f, 16, sf::Color(240, 200, 110), true);
+        label(w, font, "SCORE  " + to_string(score_), 640.f, 262.f, 20,
+              sf::Color(220, 225, 245), true);
+
+        struct Row
+        {
+            string name;
+            int number;
+            string text;
+            bool useNumber;
+        };
+
+        vector<Row> rows = {
+            {"NOTES HIT", stats_.notesHit, "", true},
+            {"LONGEST COMBO", stats_.longestCombo, "", true},
+            {"CODES BUILT", static_cast<int>(stats_.builds.size()), "", true},
+            {"DIFFERENT CODES", unique_, "", true},
+            {"MOST USED CODE", 0, favourite_, false},
+        };
+
+        float y = 320.f;
+
+        for (size_t i = 0; i < rows.size(); i++)
+        {
+            float start = 0.8f + i * 0.6f;
+            float a = clamp((t_ - start) / 0.5f, 0.f, 1.f);
+
+            if (a > 0.f)
+            {
+                string v = rows[i].useNumber
+                               ? to_string(static_cast<int>(rows[i].number * a))
+                               : rows[i].text;
+
+                sf::Color c(220, 225, 245, static_cast<std::uint8_t>(255 * a));
+
+                label(w, font, rows[i].name, 380.f, y, 20,
+                      sf::Color(110, 120, 160, static_cast<std::uint8_t>(255 * a)));
+                label(w, font, v, 900.f, y, rows[i].useNumber ? 24 : 15, c, false, true);
+            }
+
+            y += 52.f;
+        }
+
+        float fcStart = 0.8f + rows.size() * 0.6f;
+        float fa = clamp((t_ - fcStart) / 0.4f, 0.f, 1.f);
+
+        if (fa > 0.f)
+        {
+            if (stats_.fullCombo())
+            {
+                float glow = 0.6f + 0.4f * std::sin(t_ * 8.f);
+                sf::Color gold(240, 200, 110);
+
+                for (int i = 4; i >= 1; i--)
+                {
+                    sf::Text g(font, "FULL COMBO", 44);
+                    sf::FloatRect b = g.getLocalBounds();
+                    g.setOrigin({b.position.x + b.size.x / 2.f, 0.f});
+                    g.setPosition({640.f, 600.f});
+                    g.setFillColor(sf::Color::Transparent);
+                    g.setOutlineColor(sf::Color(gold.r, gold.g, gold.b,
+                                                static_cast<std::uint8_t>(30 * glow)));
+                    g.setOutlineThickness(i * 3.f);
+                    w.draw(g);
+                }
+                label(w, font, "FULL COMBO", 640.f, 600.f, 44, gold, true);
+            }
+            else
+            {
+                label(w, font, "NO FULL COMBO  (" + to_string(stats_.hitsTaken) + " hits taken)",
+                      640.f, 610.f, 18,
+                      sf::Color(110, 120, 160, static_cast<std::uint8_t>(255 * fa)), true);
+            }
+        }
+
+        if (t_ > 4.2f && fmod(t_, 1.f) < 0.7f)
+            label(w, font, "[E] Continue", 640.f, 650.f, 16, sf::Color(90, 235, 235), true);
+    }
+
+private:
+    bool active_ = false;
+    float t_ = 0.f;
+    BattleStats stats_;
+    int score_ = 0;
+    int unique_ = 0;
+    string favourite_ = "none";
+    string sub_;
+
+    static void box(sf::RenderWindow &w, float x, float y, float wd, float h,
+                    sf::Color fill, sf::Color outline = sf::Color::Transparent,
+                    float thick = 0.f)
+    {
+        sf::RectangleShape r({wd, h});
+        r.setPosition({x, y});
+        r.setFillColor(fill);
+        if (thick > 0.f)
+        {
+            r.setOutlineColor(outline);
+            r.setOutlineThickness(thick);
+        }
+        w.draw(r);
+    }
+
+    static void label(sf::RenderWindow &w, const sf::Font &f, const string &s,
+                      float x, float y, unsigned size, sf::Color c,
+                      bool centre = false, bool right = false)
+    {
+        sf::Text t(f, s, size);
+        t.setFillColor(c);
+
+        sf::FloatRect b = t.getLocalBounds();
+        if (centre)
+            t.setOrigin({b.position.x + b.size.x / 2.f, 0.f});
+        else if (right)
+            t.setOrigin({b.position.x + b.size.x, 0.f});
+
+        t.setPosition({x, y});
+        w.draw(t);
+    }
+};
 struct BuildResult
 {
     bool ok;
@@ -2900,6 +3178,8 @@ int main()
 
     Overworld overworld;
     PledgeScreen pledge; // rules + stakes shown before the boss fight
+    ResultsScreen results;
+    BattleStats stats;
 
     bool overworldActive = false; // true once you leave the dialogue
     bool prevBattle = false;      // lets us detect "battle just ended"
@@ -2915,6 +3195,7 @@ int main()
     // resets all battle state and starts a fight
     auto startBattle = [&](bool boss)
     {
+        stats = BattleStats{};
         rhythmNotes =
             {
                 {0, 800.f, true},
@@ -3530,6 +3811,7 @@ int main()
 
             if (shiroBattle && terminal.handleEvent(*event))
             {
+                stats.builds.push_back(terminal.applied());
                 attackBulletCount = terminal.applied().bullets;
                 attackSpeed = terminal.applied().speed;
                 attackSpread = terminal.applied().spread;
@@ -3557,8 +3839,11 @@ int main()
             // The pledge gets the event first. It's an else-if so the
             // same E press that ends Shiro's dialogue (and opens the
             // pledge) can't also accept it.
-
-            if (pledge.active())
+            if (results.active())
+            {
+                results.handleEvent(*event);
+            }
+            else if (pledge.active())
             {
                 if (pledge.handleEvent(*event) == PledgeScreen::Result::Accepted)
                 {
@@ -3566,10 +3851,7 @@ int main()
                     introTimer = introLength;
                 }
             }
-            else if (
-                overworldActive &&
-                !shiroBattle &&
-                introTimer <= 0.f)
+            else if (overworldActive && !shiroBattle && introTimer <= 0.f)
             {
                 if (overworld.handleEvent(*event, beatShiro) ==
                     Overworld::Request::BossFight)
@@ -3583,502 +3865,501 @@ int main()
                 }
             }
 
-            // =================================================
-            // MOUSE
-            // =================================================
+                // =================================================
+                // MOUSE
+                // =================================================
 
-            if (const auto *mouseBtn =
-                    event->getIf<sf::Event::MouseButtonPressed>())
-            {
-                if (mouseBtn->button == sf::Mouse::Button::Left)
+                if (const auto *mouseBtn =
+                        event->getIf<sf::Event::MouseButtonPressed>())
                 {
-                    auto mouse = sf::Mouse::getPosition(window);
-
-                    float mouseX = static_cast<float>(mouse.x);
-
-                    float mouseY = static_cast<float>(mouse.y);
-
-                    // =================================================
-                    // CLOSE EDITOR
-                    // =================================================
-
-                    if (editorOpen &&
-                        closeBtn.getGlobalBounds().contains({mouseX, mouseY}))
+                    if (mouseBtn->button == sf::Mouse::Button::Left)
                     {
-                        editorOpen = false;
+                        auto mouse = sf::Mouse::getPosition(window);
 
-                        continue;
-                    }
+                        float mouseX = static_cast<float>(mouse.x);
 
-                    // =================================================
-                    // EDITOR BUTTON
-                    // =================================================
+                        float mouseY = static_cast<float>(mouse.y);
 
-                    if (soraSelected &&
-                        soraSelect1 &&
-                        !editorOpen &&
-                        editorButton.getGlobalBounds().contains({mouseX, mouseY}))
-                    {
-                        editorOpen = true;
+                        // =================================================
+                        // CLOSE EDITOR
+                        // =================================================
 
-                        lastCursor = static_cast<size_t>(-1);
-
-                        scrollOffset = 0.f;
-
-                        cursorPosition = 0;
-
-                        continue;
-                    }
-
-                    // =================================================
-                    // BUILD NORMAL EDITOR
-                    // =================================================
-
-                    if (editorOpen &&
-                        buildButton.getGlobalBounds().contains({mouseX, mouseY}))
-                    {
-                        runBuild();
-                    }
-
-                    // =================================================
-                    // CLICK EDITOR
-                    // =================================================
-
-                    if (editorOpen &&
-                        mouseX >= 45.f &&
-                        mouseX <= 1210.f &&
-                        mouseY >= 55.f &&
-                        mouseY <= 480.f)
-                    {
-                        const float codeLeft = 45.f; // keep equal to the render section
-                        const float lineHeight = 17.f;
-
-                        int targetLine = max(0, static_cast<int>((mouseY - 55.f + scrollOffset) / lineHeight));
-
-                        size_t ls = 0;
-
-                        for (int l = 0; l < targetLine; l++)
+                        if (editorOpen &&
+                            closeBtn.getGlobalBounds().contains({mouseX, mouseY}))
                         {
-                            size_t nl = code.find('\n', ls);
+                            editorOpen = false;
 
-                            if (nl == string::npos)
+                            continue;
+                        }
+
+                        // =================================================
+                        // EDITOR BUTTON
+                        // =================================================
+
+                        if (soraSelected &&
+                            soraSelect1 &&
+                            !editorOpen &&
+                            editorButton.getGlobalBounds().contains({mouseX, mouseY}))
+                        {
+                            editorOpen = true;
+
+                            lastCursor = static_cast<size_t>(-1);
+
+                            scrollOffset = 0.f;
+
+                            cursorPosition = 0;
+
+                            continue;
+                        }
+
+                        // =================================================
+                        // BUILD NORMAL EDITOR
+                        // =================================================
+
+                        if (editorOpen &&
+                            buildButton.getGlobalBounds().contains({mouseX, mouseY}))
+                        {
+                            runBuild();
+                        }
+
+                        // =================================================
+                        // CLICK EDITOR
+                        // =================================================
+
+                        if (editorOpen &&
+                            mouseX >= 45.f &&
+                            mouseX <= 1210.f &&
+                            mouseY >= 55.f &&
+                            mouseY <= 480.f)
+                        {
+                            const float codeLeft = 45.f; // keep equal to the render section
+                            const float lineHeight = 17.f;
+
+                            int targetLine = max(0, static_cast<int>((mouseY - 55.f + scrollOffset) / lineHeight));
+
+                            size_t ls = 0;
+
+                            for (int l = 0; l < targetLine; l++)
                             {
-                                ls = string::npos;
-                                break;
+                                size_t nl = code.find('\n', ls);
+
+                                if (nl == string::npos)
+                                {
+                                    ls = string::npos;
+                                    break;
+                                }
+
+                                ls = nl + 1;
                             }
 
-                            ls = nl + 1;
+                            if (ls == string::npos)
+                            {
+                                cursorPosition = code.size();
+                            }
+                            else
+                            {
+                                size_t le = lineEndOf(code, ls);
+                                int col = max(0, static_cast<int>(lround((mouseX - codeLeft) / charW)));
+                                cursorPosition = ls + min(static_cast<size_t>(col), le - ls);
+                            }
                         }
 
-                        if (ls == string::npos)
+                        // =================================================
+                        // PLAY GAME
+                        // =================================================
+
+                        if (!gameStarted)
                         {
-                            cursorPosition = code.size();
+                            if (playButton.getGlobalBounds().contains({mouseX, mouseY}))
+                            {
+                                gameStarted = true;
+                            }
                         }
-                        else
+
+                        // =================================================
+                        // CHARACTER SELECT
+                        // =================================================
+
+                        else if (
+                            !shiroSelected &&
+                            !soraSelected)
                         {
-                            size_t le = lineEndOf(code, ls);
-                            int col = max(0, static_cast<int>(lround((mouseX - codeLeft) / charW)));
-                            cursorPosition = ls + min(static_cast<size_t>(col), le - ls);
+                            if (shiroMouseBox.getGlobalBounds().contains({mouseX, mouseY}))
+                            {
+                                shiroSelected = true;
+                            }
+                            else if (soraMouseBox.getGlobalBounds().contains({mouseX, mouseY}))
+                            {
+                                soraSelected = true;
+                            }
                         }
-                    }
 
-                    // =================================================
-                    // PLAY GAME
-                    // =================================================
+                        // =================================================
+                        // SHIRO SECOND CLICK
+                        // =================================================
 
-                    if (!gameStarted)
-                    {
-                        if (playButton.getGlobalBounds().contains({mouseX, mouseY}))
+                        else if (
+                            shiroSelected &&
+                            !soraSelected &&
+                            !shiroBattle &&
+                            !overworldActive)
                         {
-                            gameStarted = true;
+                            sf::FloatRect shiroDialogueClickBox(
+                                {300.f, 150.f},
+                                {200.f, 250.f});
+
+                            if (shiroDialogueClickBox.contains({mouseX, mouseY}))
+                            {
+                                overworldActive = true; // walk around first
+                                overworld.respawn();
+
+                                rhythmClock.restart();
+                            }
                         }
-                    }
 
-                    // =================================================
-                    // CHARACTER SELECT
-                    // =================================================
+                        // =================================================
+                        // SORA SECOND CLICK
+                        // =================================================
 
-                    else if (
-                        !shiroSelected &&
-                        !soraSelected)
-                    {
-                        if (shiroMouseBox.getGlobalBounds().contains({mouseX, mouseY}))
+                        else if (
+                            soraSelected &&
+                            !soraSelect1)
                         {
-                            shiroSelected = true;
-                        }
-                        else if (soraMouseBox.getGlobalBounds().contains({mouseX, mouseY}))
-                        {
-                            soraSelected = true;
-                        }
-                    }
+                            sf::FloatRect soraDialogueClickBox(
+                                {0.f, 0.f},
+                                {1280.f, 720.f});
 
-                    // =================================================
-                    // SHIRO SECOND CLICK
-                    // =================================================
-
-                    else if (
-                        shiroSelected &&
-                        !soraSelected &&
-                        !shiroBattle &&
-                        !overworldActive)
-                    {
-                        sf::FloatRect shiroDialogueClickBox(
-                            {300.f, 150.f},
-                            {200.f, 250.f});
-
-                        if (shiroDialogueClickBox.contains({mouseX, mouseY}))
-                        {
-                            overworldActive = true; // walk around first
-                            overworld.respawn();
-
-                            rhythmClock.restart();
-                        }
-                    }
-
-                    // =================================================
-                    // SORA SECOND CLICK
-                    // =================================================
-
-                    else if (
-                        soraSelected &&
-                        !soraSelect1)
-                    {
-                        sf::FloatRect soraDialogueClickBox(
-                            {0.f, 0.f},
-                            {1280.f, 720.f});
-
-                        if (soraDialogueClickBox.contains({mouseX, mouseY}))
-                        {
-                            soraSelect1 = true;
+                            if (soraDialogueClickBox.contains({mouseX, mouseY}))
+                            {
+                                soraSelect1 = true;
+                            }
                         }
                     }
                 }
-            }
 
-            // =========================================================
-            // RHYTHM INPUT
-            // =========================================================
+                // =========================================================
+                // RHYTHM INPUT
+                // =========================================================
 
-            if (shiroBattle && !editorOpen && !terminal.focused())
-            {
-                if (const auto *keyEvent =
-                        event->getIf<sf::Event::KeyPressed>())
+                if (shiroBattle && !editorOpen && !terminal.focused())
                 {
-                    int lane = -1;
+                    if (const auto *keyEvent =
+                            event->getIf<sf::Event::KeyPressed>())
+                    {
+                        int lane = -1;
 
-                    if (keyEvent->code == sf::Keyboard::Key::A)
-                    {
-                        lane = 0;
-                    }
-                    else if (keyEvent->code == sf::Keyboard::Key::S)
-                    {
-                        lane = 1;
-                    }
-                    else if (keyEvent->code == sf::Keyboard::Key::D)
-                    {
-                        lane = 2;
-                    }
-                    else if (keyEvent->code == sf::Keyboard::Key::F)
-                    {
-                        lane = 3;
-                    }
-
-                    if (lane != -1)
-                    {
-                        playerLane = lane;
-                        bool hit = false;
-
-                        for (auto &note : rhythmNotes)
+                        if (keyEvent->code == sf::Keyboard::Key::A)
                         {
-                            if (!note.active || note.lane != lane)
-                            {
-                                continue;
-                            }
-
-                            if (note.z >= 135.f && note.z <= 210.f)
-                            {
-                                note.z = 850.f + static_cast<float>(rand() % 500);
-                                note.lane = rand() % 4;
-
-                                combo++;
-
-                                score += 100 * combo;
-
-                               
-
-                                hit = true;
-                                rhythmTrack.flash(lane);
-
-                                break;
-                            }
+                            lane = 0;
+                        }
+                        else if (keyEvent->code == sf::Keyboard::Key::S)
+                        {
+                            lane = 1;
+                        }
+                        else if (keyEvent->code == sf::Keyboard::Key::D)
+                        {
+                            lane = 2;
+                        }
+                        else if (keyEvent->code == sf::Keyboard::Key::F)
+                        {
+                            lane = 3;
                         }
 
-                        if (!hit)
+                        if (lane != -1)
                         {
+                            playerLane = lane;
+                            bool hit = false;
+
+                            for (auto &note : rhythmNotes)
+                            {
+                                if (!note.active || note.lane != lane)
+                                {
+                                    continue;
+                                }
+
+                                if (note.z >= 135.f && note.z <= 210.f)
+                                {
+                                    note.z = 850.f + static_cast<float>(rand() % 500);
+                                    note.lane = rand() % 4;
+
+                                    combo++;
+                                    stats.notesHit++;
+                                    stats.longestCombo = max(stats.longestCombo, combo);
+                                    score += 100 * combo;
+
+                                    hit = true;
+                                    rhythmTrack.flash(lane);
+
+                                    break;
+                                }
+                            }
+
+                            if (!hit)
+                            {
+                            }
                         }
                     }
                 }
-            }
 
-            // =========================================================
-            // EDITOR TYPING
-            // =========================================================
+                // =========================================================
+                // EDITOR TYPING
+                // =========================================================
 
-            if (editorOpen)
-            {
-                // =====================================================
-                // TEXT INPUT
-                // =====================================================
-
-                if (const auto *textEvent =
-                        event->getIf<sf::Event::TextEntered>())
+                if (editorOpen)
                 {
-                    if (textEvent->unicode >= 32 &&
-                        textEvent->unicode < 127)
+                    // =====================================================
+                    // TEXT INPUT
+                    // =====================================================
+
+                    if (const auto *textEvent =
+                            event->getIf<sf::Event::TextEntered>())
                     {
-                        size_t lineStart = lineStartOf(code, cursorPosition);
-
-                        size_t column = cursorPosition - lineStart;
-
-                        if (column >= static_cast<size_t>(editorMaxColumns))
+                        if (textEvent->unicode >= 32 &&
+                            textEvent->unicode < 127)
                         {
-                            code.insert(cursorPosition, 1, '\n');
+                            size_t lineStart = lineStartOf(code, cursorPosition);
+
+                            size_t column = cursorPosition - lineStart;
+
+                            if (column >= static_cast<size_t>(editorMaxColumns))
+                            {
+                                code.insert(cursorPosition, 1, '\n');
+
+                                cursorPosition++;
+                            }
+                            code.insert(
+                                cursorPosition,
+                                1,
+                                static_cast<char>(textEvent->unicode));
 
                             cursorPosition++;
                         }
-                        code.insert(
-                            cursorPosition,
-                            1,
-                            static_cast<char>(textEvent->unicode));
-
-                        cursorPosition++;
                     }
-                }
 
-                // =====================================================
-                // KEYBOARD
-                // =====================================================
+                    // =====================================================
+                    // KEYBOARD
+                    // =====================================================
 
-                if (const auto *keyEvent =
-                        event->getIf<sf::Event::KeyPressed>())
-                {
-                    bool ctrlHeld =
-                        sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LControl) ||
-                        sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RControl);
-
-                    // =================================================
-                    // CTRL + V
-                    // =================================================
-
-                    if (ctrlHeld &&
-                        keyEvent->code == sf::Keyboard::Key::V)
+                    if (const auto *keyEvent =
+                            event->getIf<sf::Event::KeyPressed>())
                     {
-                        string pasted = getClipboardText();
+                        bool ctrlHeld =
+                            sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LControl) ||
+                            sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RControl);
 
-                        if (!pasted.empty())
+                        // =================================================
+                        // CTRL + V
+                        // =================================================
+
+                        if (ctrlHeld &&
+                            keyEvent->code == sf::Keyboard::Key::V)
                         {
-                            // Windows clipboard newlines
-                            // -> normal LF
-                            pasted.erase(
-                                remove(pasted.begin(), pasted.end(), '\r'),
-                                pasted.end());
+                            string pasted = getClipboardText();
 
-                            // Tabs -> 4 spaces
-                            size_t tabPos = 0;
-
-                            while ((tabPos = pasted.find('\t', tabPos)) !=
-                                   string::npos)
+                            if (!pasted.empty())
                             {
-                                pasted.replace(tabPos, 1, "    ");
+                                // Windows clipboard newlines
+                                // -> normal LF
+                                pasted.erase(
+                                    remove(pasted.begin(), pasted.end(), '\r'),
+                                    pasted.end());
 
-                                tabPos += 4;
+                                // Tabs -> 4 spaces
+                                size_t tabPos = 0;
+
+                                while ((tabPos = pasted.find('\t', tabPos)) !=
+                                       string::npos)
+                                {
+                                    pasted.replace(tabPos, 1, "    ");
+
+                                    tabPos += 4;
+                                }
+
+                                // Find indentation of current line
+                                size_t currentLineStart = lineStartOf(code, cursorPosition);
+
+                                size_t indentEnd = currentLineStart;
+
+                                while (indentEnd < code.size() &&
+                                       (code[indentEnd] == ' ' ||
+                                        code[indentEnd] == '\t'))
+                                {
+                                    indentEnd++;
+                                }
+
+                                string currentIndent =
+                                    code.substr(
+                                        currentLineStart,
+                                        indentEnd - currentLineStart);
+
+                                // Add current indentation to
+                                // subsequent pasted lines
+                                string formattedPaste;
+
+                                for (size_t i = 0; i < pasted.size(); i++)
+                                {
+                                    formattedPaste += pasted[i];
+
+                                    if (pasted[i] == '\n' &&
+                                        i + 1 < pasted.size())
+                                    {
+                                        formattedPaste += currentIndent;
+                                    }
+                                }
+
+                                code.insert(cursorPosition, formattedPaste);
+
+                                cursorPosition += formattedPaste.size();
                             }
+                        }
 
-                            // Find indentation of current line
-                            size_t currentLineStart = lineStartOf(code, cursorPosition);
+                        // =================================================
+                        // TAB
+                        // =================================================
+                        else if (keyEvent->code == sf::Keyboard::Key::Tab)
+                        {
+                            code.insert(cursorPosition, "    ");
+                            cursorPosition += 4;
+                        }
+                        else if (keyEvent->code == sf::Keyboard::Key::F5)
+                        {
+                            runBuild();
+                        }
+                        // =================================================
+                        // BACKSPACE
+                        // =================================================
 
-                            size_t indentEnd = currentLineStart;
+                        else if (
+                            keyEvent->code == sf::Keyboard::Key::Backspace &&
+                            cursorPosition > 0)
+                        {
+                            code.erase(cursorPosition - 1, 1);
+
+                            cursorPosition--;
+                        }
+
+                        // =================================================
+                        // ENTER + AUTO INDENT
+                        // =================================================
+
+                        else if (keyEvent->code == sf::Keyboard::Key::Enter)
+                        {
+                            size_t lineStart = lineStartOf(code, cursorPosition);
+
+                            size_t indentEnd = lineStart;
 
                             while (indentEnd < code.size() &&
-                                   (code[indentEnd] == ' ' ||
-                                    code[indentEnd] == '\t'))
+                                   code[indentEnd] == ' ')
                             {
                                 indentEnd++;
                             }
 
-                            string currentIndent =
-                                code.substr(
-                                    currentLineStart,
-                                    indentEnd - currentLineStart);
+                            string indent =
+                                code.substr(lineStart, indentEnd - lineStart);
 
-                            // Add current indentation to
-                            // subsequent pasted lines
-                            string formattedPaste;
+                            string newline = "\n" + indent;
 
-                            for (size_t i = 0; i < pasted.size(); i++)
+                            code.insert(cursorPosition, newline);
+
+                            cursorPosition += newline.size();
+                        }
+
+                        // =================================================
+                        // LEFT
+                        // =================================================
+
+                        else if (keyEvent->code == sf::Keyboard::Key::Left)
+                        {
+                            if (cursorPosition > 0)
+                                cursorPosition--;
+                        }
+
+                        // =================================================
+                        // RIGHT
+                        // =================================================
+
+                        else if (keyEvent->code == sf::Keyboard::Key::Right)
+                        {
+                            if (cursorPosition < code.size())
                             {
-                                formattedPaste += pasted[i];
-
-                                if (pasted[i] == '\n' &&
-                                    i + 1 < pasted.size())
-                                {
-                                    formattedPaste += currentIndent;
-                                }
+                                cursorPosition++;
                             }
-
-                            code.insert(cursorPosition, formattedPaste);
-
-                            cursorPosition += formattedPaste.size();
                         }
-                    }
 
-                    // =================================================
-                    // TAB
-                    // =================================================
-                    else if (keyEvent->code == sf::Keyboard::Key::Tab)
-                    {
-                        code.insert(cursorPosition, "    ");
-                        cursorPosition += 4;
-                    }
-                    else if (keyEvent->code == sf::Keyboard::Key::F5)
-                    {
-                        runBuild();
-                    }
-                    // =================================================
-                    // BACKSPACE
-                    // =================================================
+                        // =================================================
+                        // UP
+                        // =================================================
 
-                    else if (
-                        keyEvent->code == sf::Keyboard::Key::Backspace &&
-                        cursorPosition > 0)
-                    {
-                        code.erase(cursorPosition - 1, 1);
-
-                        cursorPosition--;
-                    }
-
-                    // =================================================
-                    // ENTER + AUTO INDENT
-                    // =================================================
-
-                    else if (keyEvent->code == sf::Keyboard::Key::Enter)
-                    {
-                        size_t lineStart = lineStartOf(code, cursorPosition);
-
-                        size_t indentEnd = lineStart;
-
-                        while (indentEnd < code.size() &&
-                               code[indentEnd] == ' ')
+                        else if (keyEvent->code == sf::Keyboard::Key::Up)
                         {
-                            indentEnd++;
+                            size_t ls = lineStartOf(code, cursorPosition);
+                            size_t col = cursorPosition - ls;
+
+                            if (ls > 0)
+                            {
+                                size_t pls = lineStartOf(code, ls - 1);
+                                size_t plen = (ls - 1) - pls;
+                                cursorPosition = pls + min(col, plen);
+                            }
                         }
 
-                        string indent =
-                            code.substr(lineStart, indentEnd - lineStart);
+                        // =================================================
+                        // DOWN
+                        // =================================================
 
-                        string newline = "\n" + indent;
-
-                        code.insert(cursorPosition, newline);
-
-                        cursorPosition += newline.size();
-                    }
-
-                    // =================================================
-                    // LEFT
-                    // =================================================
-
-                    else if (keyEvent->code == sf::Keyboard::Key::Left)
-                    {
-                        if (cursorPosition > 0)
-                            cursorPosition--;
-                    }
-
-                    // =================================================
-                    // RIGHT
-                    // =================================================
-
-                    else if (keyEvent->code == sf::Keyboard::Key::Right)
-                    {
-                        if (cursorPosition < code.size())
+                        else if (keyEvent->code == sf::Keyboard::Key::Down)
                         {
-                            cursorPosition++;
+                            size_t ls = lineStartOf(code, cursorPosition);
+                            size_t col = cursorPosition - ls;
+                            size_t le = lineEndOf(code, cursorPosition);
+
+                            if (le < code.size())
+                            {
+                                size_t nls = le + 1;
+                                size_t nle = lineEndOf(code, nls);
+                                cursorPosition = nls + min(col, nle - nls);
+                            }
                         }
-                    }
-
-                    // =================================================
-                    // UP
-                    // =================================================
-
-                    else if (keyEvent->code == sf::Keyboard::Key::Up)
-                    {
-                        size_t ls = lineStartOf(code, cursorPosition);
-                        size_t col = cursorPosition - ls;
-
-                        if (ls > 0)
+                        else if (keyEvent->code == sf::Keyboard::Key::Home)
                         {
-                            size_t pls = lineStartOf(code, ls - 1);
-                            size_t plen = (ls - 1) - pls;
-                            cursorPosition = pls + min(col, plen);
+                            cursorPosition = lineStartOf(code, cursorPosition);
                         }
-                    }
-
-                    // =================================================
-                    // DOWN
-                    // =================================================
-
-                    else if (keyEvent->code == sf::Keyboard::Key::Down)
-                    {
-                        size_t ls = lineStartOf(code, cursorPosition);
-                        size_t col = cursorPosition - ls;
-                        size_t le = lineEndOf(code, cursorPosition);
-
-                        if (le < code.size())
+                        else if (keyEvent->code == sf::Keyboard::Key::End)
                         {
-                            size_t nls = le + 1;
-                            size_t nle = lineEndOf(code, nls);
-                            cursorPosition = nls + min(col, nle - nls);
+                            cursorPosition = lineEndOf(code, cursorPosition);
+                        }
+                        else if (keyEvent->code == sf::Keyboard::Key::Delete)
+                        {
+                            if (cursorPosition < code.size())
+                                code.erase(cursorPosition, 1);
                         }
                     }
-                    else if (keyEvent->code == sf::Keyboard::Key::Home)
+
+                    // =========================================================
+                    // EDITOR SCROLL
+                    // =========================================================
+
+                    if (const auto *scrollEvent =
+                            event->getIf<sf::Event::MouseWheelScrolled>())
                     {
-                        cursorPosition = lineStartOf(code, cursorPosition);
+                        scrollOffset -= scrollEvent->delta * 55.f;
+
+                        size_t lineCount =
+                            count(code.begin(), code.end(), '\n') + 1;
+
+                        float maxScroll =
+                            max(0.f,
+                                static_cast<float>(lineCount) * 17.f -
+                                    (480.f - 55.f));
+
+                        if (scrollOffset < 0.f)
+                            scrollOffset = 0.f;
+
+                        if (scrollOffset > maxScroll)
+                            scrollOffset = maxScroll;
                     }
-                    else if (keyEvent->code == sf::Keyboard::Key::End)
-                    {
-                        cursorPosition = lineEndOf(code, cursorPosition);
-                    }
-                    else if (keyEvent->code == sf::Keyboard::Key::Delete)
-                    {
-                        if (cursorPosition < code.size())
-                            code.erase(cursorPosition, 1);
-                    }
-                }
-
-                // =========================================================
-                // EDITOR SCROLL
-                // =========================================================
-
-                if (const auto *scrollEvent =
-                        event->getIf<sf::Event::MouseWheelScrolled>())
-                {
-                    scrollOffset -= scrollEvent->delta * 55.f;
-
-                    size_t lineCount =
-                        count(code.begin(), code.end(), '\n') + 1;
-
-                    float maxScroll =
-                        max(0.f,
-                            static_cast<float>(lineCount) * 17.f -
-                                (480.f - 55.f));
-
-                    if (scrollOffset < 0.f)
-                        scrollOffset = 0.f;
-
-                    if (scrollOffset > maxScroll)
-                        scrollOffset = maxScroll;
                 }
             }
-        }
 
         // =========================================================
         // RHYTHM UPDATE
@@ -4103,6 +4384,7 @@ int main()
                         rhythmTrack.miss(); // red screen flash
                         combo = 0;
                         playerHP -= 8;
+                        stats.hitsTaken++;
 
                         if (playerHP <= 0)
                         {
@@ -4259,8 +4541,11 @@ int main()
         // =========================================================
 
         pledge.update(dt);
+        results.update(dt);
+        if (resultTimer > 0.f)
+            resultTimer -= dt;
 
-        if (overworldActive && !shiroBattle && !pledge.active() && resultTimer <= 0.f)
+        if (overworldActive && !shiroBattle && !pledge.active() && !results.active() && resultTimer <= 0.f)
         {
             if (introTimer > 0.f)
             {
@@ -4288,9 +4573,12 @@ int main()
         if (prevBattle && !shiroBattle && overworldActive)
         {
             resultWon = (shiroHP <= 0);
-            resultTimer = 2.5f;
+            resultTimer = resultTimer = resultWon ? 0.f : 2.5f;
+            
             resultText = resultWon ? (lastWasBoss ? "Oh Wow... BLank won't ever lose to you though..." : "BUG SQUASHED")
                                    : "YOU FELL OFF THE EDGE PUNK!!!!!";
+            if (resultWon)
+                results.open(stats, score, resultText);
             if (shiroHP <= 0 && lastWasBoss)
                 beatShiro = true;
 
@@ -4510,7 +4798,8 @@ int main()
 
                 txt("SCORE", {130.f, 565.f}, 10, sf::Color(100, 135, 160), true);
 
-                txt(to_string(score), {130.f, 582.f}, 20, neonPink, true);
+                string rankStr(1, scoreLetter(score));
+                txt(rankStr, {130.f, 582.f}, 28, letterColor(rankStr[0]), true);
 
                 // =================================================
                 // SHIRO CASTING
@@ -4568,7 +4857,7 @@ int main()
 
                     window.draw(bullet);
                 }
-
+                terminal.setRank(scoreLetter(score));
                 terminal.draw(window);
             }
 
@@ -4590,6 +4879,7 @@ int main()
 
                 // drawn last so it sits on top of the map
                 pledge.draw(window, editorFont);
+                results.draw(window, font);
                 if (resultTimer > 0.f)
                 {
                     window.setView(window.getDefaultView());
