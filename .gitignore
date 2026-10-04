@@ -1,0 +1,4 @@
+   *.exe
+   test.cpp
+   anime_backup*.cpp
+   anime_mybackup.cpp
