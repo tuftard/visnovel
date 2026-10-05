@@ -192,6 +192,7 @@ bool ShiroTerminal::handleEvent(const sf::Event &e)
         default:
             break;
         }
+        
 
         return false;
     }
