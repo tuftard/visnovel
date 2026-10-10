@@ -1,6 +1,7 @@
 // cd "C:\Users\Noah\Desktop\visual novel"
 
-// // g++ anime.cpp Common.cpp ShiroTerminal.cpp RhythmTrack.cpp soraeditor.cpp HtmlShooterScreen.cpp AsciiCity.cpp -I"C:\SFML\include" -L"C:\SFML\lib" -lsfml-graphics -lsfml-window -lsfml-system -o anime.exe
+// // g++ anime.cpp Common.cpp ShiroTerminal.cpp RhythmTrack.cpp soraeditor.cpp HtmlShooterScreen.cpp AsciiCity.cpp RhythmMapEditor.cpp -I"C:\SFML\include" -L"C:\SFML\lib" -lsfml-graphics -lsfml-window -lsfml-system -o anime.exe
+// (add AimGame.cpp etc. to that line if they are not already part of your build)
 // ---------------- GIT: stop tracking exe + backups ----------------
 // Run each line separately in PowerShell, in this folder.
 //
@@ -24,6 +25,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <map>
 #include <fstream>
 #include <cctype>
 #include <cmath>
@@ -35,11 +37,16 @@
 #include <windows.h>
 #include <sstream>
 #include <cstdint>
+#include <memory>
+#include <filesystem>
 #include "Common.h"
+#include "Minigame.h"
+#include "AimGame.h"
 #include "ShiroTerminal.h"
 #include "RhythmTrack.h"
 #include "soraeditor.h"
 #include "AsciiCity.h"
+#include "RhythmMapEditor.h"
 #include "HtmlShooterScreen.h"
 #include "PledgeScreen.h"
 #include "BattleStats.h"
@@ -337,24 +344,13 @@ public:
 
         tiles[0][7][W - 1] = 'D'; // exit door (east), locked until Shiro is beaten
 
-        // ---------------- room 1: Web District ----------------
-        tiles[1].assign(H, string(W, '.'));
-        border(tiles[1]);
-
-        for (int y = 3; y < 10; y++)
-        {
-            tiles[1][y][11] = '#';
-            tiles[1][y][17] = '#';
-        }
-
-        tiles[1][7][0] = 'B'; // back door (west)
-
         Npc shiro;
         shiro.room = 0;
         shiro.pos = {TILE * 22.5f, TILE * 3.5f};
         shiro.name = "SHIRO";
         shiro.color = sf::Color(150, 235, 215);
         shiro.boss = true;
+        shiro.battleMap = "shiro_boss"; // maps/shiro_boss.txt
         shiro.lines = {"You want to get past me?",
                        "Then prove you can write real code."};
         shiro.afterLines = {"...Fine. You win. Go on ahead."};
@@ -375,7 +371,7 @@ public:
         izuna.pos = {TILE * 22.5f, TILE * 7.5f};
         izuna.name = "IZUNA";
         izuna.color = sf::Color(255, 200, 90);
-        izuna.shooter = true;
+
         izuna.lines = {"Welcome to the Web District.",
                        "Everything here is built out of tags.",
                        "Write the right HTML and your shots will land.",
@@ -402,6 +398,15 @@ public:
     }
 
     void setUnlocked(bool u) { unlocked = u; }
+
+    // name of the map the boss NPC fights with ("" if none)
+    string bossMapName() const
+    {
+        for (const auto &n : npcs)
+            if (n.boss)
+                return n.battleMap;
+        return "";
+    }
 
     Request handleEvent(const sf::Event &e, bool beaten)
     {
@@ -440,14 +445,10 @@ public:
 
             if (npcs[talkNpc].boss && !beaten)
                 return Request::BossFight;
-
-            if (npcs[talkNpc].shooter)
-                return Request::ShooterFight;
         }
 
         return Request::None;
     }
-
     Request update(float dt)
     {
         if (talking)
@@ -657,7 +658,7 @@ private:
         string name;
         sf::Color color{200, 120, 220};
         bool boss = false;
-        bool shooter = false;
+        string battleMap; // map name for this NPC's fight, e.g. "shiro_boss"
         vector<string> lines;
         vector<string> afterLines;
     };
@@ -779,7 +780,6 @@ private:
         w.draw(t);
     }
 };
-
 
 // horizontal CRT lines over a rectangle
 sf::VertexArray makeScanlines(sf::FloatRect area, float spacing, sf::Color color)
@@ -997,7 +997,6 @@ inline void drawNGNLButton(sf::RenderWindow &w, sf::FloatRect r, const string &l
     w.draw(txt);
 }
 
-
 // =============================================================
 // MAIN
 // =============================================================
@@ -1179,18 +1178,77 @@ int main()
     float introTimer = 0.f; // battle transition countdown
     const float introLength = 0.8f;
 
+    // =========================================================
+    // RHYTHM MAPS (one file per map in maps/, loaded by name)
+    // =========================================================
+
+    std::error_code mapsEc;
+    std::filesystem::create_directories("maps", mapsEc);
+
+    // every maps/*.txt, keyed by file name without ".txt"
+    auto maps = loadAllMaps("maps");
+
+    bool mapActive = false; // true while the battle notes come from a map file
+    string currentMapName = "";
+
+    const float mapLeadIn = 1.5f; // seconds before a map's time 0 reaches you
+
+    // arrival time -> starting distance: notes move at rhythmNoteSpeed and hit at z = 150
+    auto fillNotesFromMap = [&](const RhythmMap &m)
+    {
+        rhythmNotes.clear();
+        for (const MapNote &n : m.notes)
+            rhythmNotes.push_back(
+                {n.col, 150.f + rhythmNoteSpeed * (n.time + mapLeadIn), true});
+    };
+
+    // grass fights: random lane map whose name starts with "grass"
+    // (grass_bug, grass_2, ...). Returns "" if there is none.
+    auto pickGrassMap = [&]() -> string
+    {
+        vector<string> names;
+        for (const auto &kv : maps)
+            if (kv.first.rfind("grass", 0) == 0 &&
+                kv.second.mode == RhythmMap::Mode::Lanes &&
+                !kv.second.notes.empty())
+                names.push_back(kv.first);
+
+        if (names.empty())
+            return "";
+
+        return names[rand() % names.size()];
+    };
+
     // resets all battle state and starts a fight
     auto startBattle = [&](bool boss)
     {
         stats = BattleStats{};
-        rhythmNotes =
-            {
-                {0, 800.f, true},
-                {1, 700.f, true},
-                {2, 600.f, true},
-                {3, 500.f, true},
-                {0, 900.f, true},
-                {2, 1000.f, true}};
+
+        string mapName = boss ? overworld.bossMapName() : pickGrassMap();
+        auto it = maps.find(mapName);
+
+        if (it != maps.end() &&
+            it->second.mode == RhythmMap::Mode::Lanes &&
+            !it->second.notes.empty())
+        {
+            mapActive = true;
+            currentMapName = mapName;
+            fillNotesFromMap(it->second);
+        }
+        else
+        {
+            // no map file yet: old hardcoded notes + random recycling
+            mapActive = false;
+            currentMapName = "";
+            rhythmNotes =
+                {
+                    {0, 800.f, true},
+                    {1, 700.f, true},
+                    {2, 600.f, true},
+                    {3, 500.f, true},
+                    {0, 900.f, true},
+                    {2, 1000.f, true}};
+        }
 
         combo = 0;
         shiroHP = boss ? 100 : 40; // grass bugs are weaker than Shiro
@@ -1247,6 +1305,20 @@ int main()
 
     playText.setPosition({640.f, 365.f});
 
+    // OPTIONS button + panel
+    bool optionsOpen = false;
+
+    sf::RectangleShape optionsButton;
+    optionsButton.setSize({250.f, 70.f});
+    optionsButton.setPosition({515.f, 420.f});
+
+    sf::RectangleShape mapEditorButton;
+    mapEditorButton.setSize({400.f, 60.f});
+    mapEditorButton.setPosition({440.f, 300.f});
+
+    sf::RectangleShape backButton;
+    backButton.setSize({400.f, 60.f});
+    backButton.setPosition({440.f, 380.f});
     // =========================================================
     // SHIRO
     // =========================================================
@@ -1612,6 +1684,8 @@ int main()
     // =========================================================
     // MAIN LOOP
     // =========================================================
+    std::unique_ptr<Minigame> activeGame;
+    std::unique_ptr<RhythmMapEditor> mapEditor; // F9 opens the rhythm map editor
     // dark lines; for orange lines use sf::Color(255, 140, 40, 22)
     sf::VertexArray crt = makeScanlines({{0.f, 0.f}, {1280.f, 720.f}},
                                         3.f, sf::Color(0, 0, 0, 45));
@@ -1622,7 +1696,6 @@ int main()
         // =====================================================
 
         float dt = rhythmClock.restart().asSeconds();
-
         terminal.update(
             dt,
             sf::Vector2f(sf::Mouse::getPosition(window)),
@@ -1643,6 +1716,26 @@ int main()
             if (event->is<sf::Event::Closed>())
             {
                 window.close();
+            }
+
+            // =================================================
+            // RHYTHM MAP EDITOR (modal: eats every event while open)
+            // =================================================
+
+            if (mapEditor)
+            {
+                mapEditor->handleEvent(*event);
+                continue;
+            }
+
+            if (const auto *f9 = event->getIf<sf::Event::KeyPressed>())
+            {
+                if (f9->code == sf::Keyboard::Key::F9 && !shiroBattle &&
+                    !soraEditor.isOpen())
+                {
+                    mapEditor = std::make_unique<RhythmMapEditor>("maps/new_map.txt");
+                    continue;
+                }
             }
 
             // =================================================
@@ -1686,7 +1779,11 @@ int main()
             // The pledge gets the event first. It's an else-if so the
             // same E press that ends Shiro's dialogue (and opens the
             // pledge) can't also accept it.
-            if (grading.active())
+            if (activeGame)
+            {
+                activeGame->handleEvent(*event);
+            }
+            else if (grading.active())
             {
                 grading.handleEvent(*event);
             }
@@ -1710,7 +1807,6 @@ int main()
             else if (cityActive)
             {
                 AsciiCity::Request r = city.handleEvent(*event);
-
                 if (r == AsciiCity::Request::Exit)
                 {
                     cityActive = false;
@@ -1718,6 +1814,13 @@ int main()
                 }
                 else if (r == AsciiCity::Request::Shooter)
                     htmlShooter.open(editorFont);
+                else if (r == AsciiCity::Request::AimGame)
+                {
+                    // use the machine's map (grid mode); nullptr = built-in pattern
+                    auto mapIt = maps.find(city.requestedMap());
+                    activeGame = std::make_unique<AimGame>(
+                        mapIt != maps.end() ? &mapIt->second : nullptr);
+                }
             }
             else if (overworldActive && !shiroBattle && introTimer <= 0.f)
             {
@@ -1764,12 +1867,27 @@ int main()
                     // =================================================
                     // PLAY GAME
                     // =================================================
-
                     if (!gameStarted)
                     {
-                        if (playButton.getGlobalBounds().contains({mouseX, mouseY}))
+                        if (optionsOpen)
+                        {
+                            if (mapEditorButton.getGlobalBounds().contains({mouseX, mouseY}))
+                            {
+                                mapEditor = std::make_unique<RhythmMapEditor>("maps/new_map.txt");
+                                optionsOpen = false;
+                            }
+                            else if (backButton.getGlobalBounds().contains({mouseX, mouseY}))
+                            {
+                                optionsOpen = false;
+                            }
+                        }
+                        else if (playButton.getGlobalBounds().contains({mouseX, mouseY}))
                         {
                             gameStarted = true;
+                        }
+                        else if (optionsButton.getGlobalBounds().contains({mouseX, mouseY}))
+                        {
+                            optionsOpen = true;
                         }
                     }
 
@@ -1876,8 +1994,15 @@ int main()
 
                             if (note.z >= 135.f && note.z <= 210.f)
                             {
-                                note.z = 850.f + static_cast<float>(rand() % 500);
-                                note.lane = rand() % 4;
+                                if (mapActive)
+                                {
+                                    note.active = false; // map note: used up
+                                }
+                                else
+                                {
+                                    note.z = 850.f + static_cast<float>(rand() % 500);
+                                    note.lane = rand() % 4;
+                                }
 
                                 combo++;
                                 stats.notesHit++;
@@ -1896,6 +2021,29 @@ int main()
                         }
                     }
                 }
+            }
+        }
+
+        // =========================================================
+        // RHYTHM MAP EDITOR: replaces the whole game frame while open
+        // =========================================================
+
+        if (mapEditor)
+        {
+            mapEditor->update(dt);
+
+            if (mapEditor->finished())
+            {
+                mapEditor.reset();
+                maps = loadAllMaps("maps"); // pick up new / edited maps right away
+                rhythmClock.restart();
+            }
+            else
+            {
+                window.clear();
+                mapEditor->draw(window, editorFont);
+                window.display();
+                continue; // skip game update/render while editing
             }
         }
 
@@ -1938,9 +2086,39 @@ int main()
                         }
                     }
 
-                    // either way, recycle the note (dodged or hit)
-                    note.z = 850.f + static_cast<float>(rand() % 500);
-                    note.lane = rand() % 4;
+                    // either way, the note is used up (dodged or hit)
+                    if (mapActive)
+                    {
+                        note.active = false;
+                    }
+                    else
+                    {
+                        note.z = 850.f + static_cast<float>(rand() % 500);
+                        note.lane = rand() % 4;
+                    }
+                }
+            }
+
+            // map finished: loop it (the fight still ends on HP)
+            if (mapActive && shiroBattle)
+            {
+                bool anyActive = false;
+
+                for (const auto &n : rhythmNotes)
+                {
+                    if (n.active)
+                    {
+                        anyActive = true;
+                        break;
+                    }
+                }
+
+                if (!anyActive)
+                {
+                    auto it = maps.find(currentMapName);
+
+                    if (it != maps.end())
+                        fillNotesFromMap(it->second);
                 }
             }
         }
@@ -2126,7 +2304,14 @@ int main()
 
         if (cityActive && !htmlShooter.active())
             city.update(dt);
-
+        if (activeGame)
+        {
+            activeGame->update(dt);
+            if (activeGame->finished())
+                activeGame.reset();
+        }
+        else if (cityActive && !htmlShooter.active())
+            city.update(dt);
         // battle just ended -> back to the overworld
         if (prevBattle && !shiroBattle && overworldActive)
         {
@@ -2168,12 +2353,28 @@ int main()
             window.draw(background);
 
             window.draw(title);
+            sf::Vector2f mp(sf::Mouse::getPosition(window));
 
-            bool hovPlay = playButton.getGlobalBounds().contains(
-                sf::Vector2f(sf::Mouse::getPosition(window)));
+            if (optionsOpen)
+            {
+                drawNGNLButton(window, mapEditorButton.getGlobalBounds(),
+                               "RHYTHM MAP EDITOR", font, Themes::sora,
+                               mapEditorButton.getGlobalBounds().contains(mp), ui);
 
-            drawNGNLButton(window, playButton.getGlobalBounds(),
-                           "PLAY GAME", font, Themes::shiro, hovPlay, ui);
+                drawNGNLButton(window, backButton.getGlobalBounds(),
+                               "BACK", font, Themes::sora,
+                               backButton.getGlobalBounds().contains(mp), ui);
+            }
+            else
+            {
+                drawNGNLButton(window, playButton.getGlobalBounds(),
+                               "PLAY GAME", font, Themes::shiro,
+                               playButton.getGlobalBounds().contains(mp), ui);
+
+                drawNGNLButton(window, optionsButton.getGlobalBounds(),
+                               "OPTIONS", font, Themes::shiro,
+                               optionsButton.getGlobalBounds().contains(mp), ui);
+            }
         }
 
         // =========================================================
@@ -2425,19 +2626,13 @@ int main()
 
             else if (overworldActive)
             {
-                if (cityActive)
+                if (activeGame)
+                    activeGame->draw(window, editorFont);
+                else if (cityActive)
                     city.draw(window, editorFont);
                 else
-                    overworld.draw(
-                        window,
-                        editorFont,
-                        playerHP,
-                        100,
-                        beatShiro,
-                        introTimer > 0.f
-                            ? 1.f - introTimer / introLength
-                            : -1.f);
-
+                    overworld.draw(window, editorFont, playerHP, 100, beatShiro,
+                                   introTimer > 0.f ? 1.f - introTimer / introLength : -1.f);
                 // drawn last so it sits on top of the map
                 pledge.draw(window, editorFont);
                 results.draw(window, font);

@@ -1,0 +1,5 @@
+# rhythm map v1
+mode lanes
+bpm 120.000
+offset 0.000
+note 0.750 3

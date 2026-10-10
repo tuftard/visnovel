@@ -1,5 +1,5 @@
 #include "AsciiCity.h"
-
+#include <utility>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -10,10 +10,19 @@ AsciiCity::AsciiCity() { generate(); }
 
 void AsciiCity::enter()
 {
-    px = 52.5f;
-    py = 34.5f;
+    if (inside)
+        leaveBuilding();
+    px = SPAWN_X;
+    py = SPAWN_Y;
+    t = 0.f;
     talking = false;
+    talkIndex = 0;
     toastT = 0.f;
+    onDoor = false;
+
+    // a wandering NPC may be standing on the spawn tile; nudge it away
+    // so you never walk in already stuck inside someone
+    clearSpawn();
 }
 
 AsciiCity::Request AsciiCity::handleEvent(const sf::Event &e)
@@ -23,7 +32,14 @@ AsciiCity::Request AsciiCity::handleEvent(const sf::Event &e)
         return Request::None;
 
     if (k->code == sf::Keyboard::Key::Escape && !talking)
+    {
+        if (inside)
+        {
+            leaveBuilding();
+            return Request::None;
+        }
         return Request::Exit;
+    }
 
     bool confirm = k->code == sf::Keyboard::Key::E ||
                    k->code == sf::Keyboard::Key::Enter ||
@@ -47,8 +63,11 @@ AsciiCity::Request AsciiCity::handleEvent(const sf::Event &e)
     if (talkIndex >= npcs[talkNpc].lines.size())
     {
         talking = false;
+        pendingMap = npcs[talkNpc].mapName;
         if (npcs[talkNpc].shooter)
             return Request::Shooter;
+        if (npcs[talkNpc].aimGame)
+            return Request::AimGame;
     }
     return Request::None;
 }
@@ -83,11 +102,19 @@ void AsciiCity::update(float dt)
     if (!hit(px, py + d.y * sp))
         py += d.y * sp;
 
-    if (kind[static_cast<int>(py) * W + static_cast<int>(px)] == 4)
+    // door: show the toast once when you step on it, not every frame
+    bool nowOnDoor = kind[static_cast<int>(py) * W + static_cast<int>(px)] == 4;
+    if (nowOnDoor && !onDoor)
     {
-        toastText = "DOOR LOCKED - finish the code first.";
-        toastT = 2.f;
+        if (inside)
+            leaveBuilding();
+        else if (const Door *dr = doorAt(static_cast<int>(px), static_cast<int>(py)))
+            enterBuilding(*dr);
+
+        onDoor = false; // we were moved off the door tile
+        return;         // maps were swapped, skip the NPC loop this frame
     }
+    onDoor = nowOnDoor;
 
     // wandering NPCs
     for (auto &n : npcs)
@@ -107,8 +134,9 @@ void AsciiCity::update(float dt)
         int nx = n.x + dx[r];
         int ny = n.y + dy[r];
 
-        if (freeTile(nx, ny) && kind[ny * W + nx] != 4 &&
-            !(nx == static_cast<int>(px) && ny == static_cast<int>(py)))
+        // never step onto any tile the player's hitbox touches
+        // (the old center-tile check could trap you between corners)
+        if (freeTile(nx, ny) && kind[ny * W + nx] != 4 && !overlapsPlayer(nx, ny))
         {
             n.x = nx;
             n.y = ny;
@@ -128,8 +156,8 @@ void AsciiCity::draw(sf::RenderWindow &w, const sf::Font &font) const
                                 : clamp(px * CW - 640.f, 0.f, mapW - 1280.f);
     float oy = (mapH <= 720.f) ? (mapH - 720.f) / 2.f
                                : clamp(py * CH - 360.f, 0.f, mapH - 720.f);
-    int x0 = static_cast<int>(ox / CW);
-    int y0 = static_cast<int>(oy / CH);
+    int x0 = static_cast<int>(floor(ox / CW)); // floor, not truncate: ox can be negative
+    int y0 = static_cast<int>(floor(oy / CH));
 
     sf::VertexArray va(sf::PrimitiveType::Triangles);
 
@@ -172,7 +200,7 @@ void AsciiCity::draw(sf::RenderWindow &w, const sf::Font &font) const
     }
 
     for (const auto &n : npcs)
-        glyph(va, font, n.fixed ? '^' : '&', n.x * CW - ox, n.y * CH - oy, n.color);
+        glyph(va, font, n.fixed ? '*' : '&', n.x * CW - ox, n.y * CH - oy, n.color);
 
     glyph(va, font, '@', px * CW - ox, py * CH - oy, sf::Color::White);
 
@@ -184,7 +212,7 @@ void AsciiCity::draw(sf::RenderWindow &w, const sf::Font &font) const
     label(w, font, "NEO-KOWLOON // WEB DISTRICT", 20.f, 16.f, 16, sf::Color(255, 45, 149));
     label(w, font, "WASD move   SHIFT run   E talk   ESC leave", 20.f, 40.f, 12,
           sf::Color(159, 233, 255));
-
+    label(w, font, placeName, 20.f, 16.f, 16, sf::Color(255, 45, 149));
     if (!talking && nearestNpc(2.5f) >= 0)
         label(w, font, "[E] talk", 600.f, 640.f, 16, sf::Color(240, 200, 110));
 
@@ -230,13 +258,49 @@ bool AsciiCity::solidAt(int x, int y) const
 
 bool AsciiCity::hit(float x, float y) const
 {
-    const float r = 0.3f;
+    const float r = PLAYER_R;
     for (float dx : {-r, r})
         for (float dy : {-r, r})
             if (solidAt(static_cast<int>(std::floor(x + dx)),
                         static_cast<int>(std::floor(y + dy))))
                 return true;
     return false;
+}
+
+// true if a tile overlaps the player's hitbox (same box hit() tests)
+bool AsciiCity::overlapsPlayer(int tx, int ty) const
+{
+    return std::fabs(px - (tx + .5f)) < .5f + PLAYER_R &&
+           std::fabs(py - (ty + .5f)) < .5f + PLAYER_R;
+}
+
+// push any wandering NPC off the player's current spot to the nearest free ground tile
+void AsciiCity::clearSpawn()
+{
+    for (auto &n : npcs)
+    {
+        if (n.fixed || !overlapsPlayer(n.x, n.y))
+            continue;
+
+        bool moved = false;
+
+        for (int r = 1; r <= 8 && !moved; r++)
+            for (int dy = -r; dy <= r && !moved; dy++)
+                for (int dx = -r; dx <= r && !moved; dx++)
+                {
+                    int nx = n.x + dx;
+                    int ny = n.y + dy;
+
+                    if (nx < 0 || ny < 0 || nx >= W || ny >= H)
+                        continue;
+                    if (kind[ny * W + nx] != 0 || !freeTile(nx, ny) || overlapsPlayer(nx, ny))
+                        continue;
+
+                    n.x = nx;
+                    n.y = ny;
+                    moved = true;
+                }
+    }
 }
 
 int AsciiCity::nearestNpc(float range) const
@@ -396,9 +460,13 @@ void AsciiCity::generate()
                             put(x, y, '#', 1, wall, true);
                     }
 
-                put((ax + bx) / 2, by, 'D', 4, sf::Color(255, 210, 63), false);
-                sign(NAMES[static_cast<int>(rnd() * 14)], (ax + bx + 1) / 2, ay + 2,
-                     NEON[static_cast<int>(rnd() * 6)]);
+                const char *nm = NAMES[static_cast<int>(rnd() * 14)];
+                sf::Color sc = NEON[static_cast<int>(rnd() * 6)];
+
+                int dxp = (ax + bx) / 2;
+                put(dxp, by, 'D', 4, sf::Color(255, 210, 63), false);
+                doors.push_back({dxp, by, nm, static_cast<std::uint32_t>(rnd() * 1000000.f) + 1u});
+                sign(nm, (ax + bx + 1) / 2, ay + 2, sc);
             }
         }
 
@@ -412,18 +480,32 @@ void AsciiCity::generate()
     izuna.shooter = true;
     izuna.lines = {"Welcome to the Web District.",
                    "Everything here is built out of tags.",
-                   "Write the right HTML and your shots will land.",
                    "Ready? Let's shoot some pages."};
     npcs.push_back(izuna);
 
+    Npc oldman;
+    oldman.x = 50;
+    oldman.y = 32;
+    oldman.name = "OLD MAN";
+    oldman.color = sf::Color(57, 255, 136);
+    oldman.fixed = true;
+    oldman.aimGame = true;
+    oldman.mapName = "aim_oldman"; // maps/aim_oldman.txt (grid map)
+    oldman.lines = {"Hungry... Traveler",
+                    "The ramen place on the west side never closes.",
+                    "Tell them I sent you and get some andsign soup",
+                    "...You've got quick hands. Think you can keep up with the beat?"};
+    npcs.push_back(oldman);
+
     static const char *PN[] = {"KAI", "MIRA", "ROOK", "NOVA", "ZED", "LUNA", "ECHO",
                                "VEX", "JUNO", "HALO", "PIXEL", "CIPHER", "RIN", "ONYX"};
+
     static const vector<string> TALK = {
-        "Rain never stops here. Neither do the ads.",
-        "Heard the arcade on the east side is still up.",
-        "Don't trust the noodle shop named 404.",
-        "I sell memory. Cheap. Slightly used.",
-        "The fountain isn't water. Don't ask."};
+        "Rain never stops here. I never wanna stop either, pain or happiness",
+        "I need to keep going tho",
+        "Can't wait here, nor there",
+        "Just cant't stay here",
+        "Catch me somewhere else"};
 
     for (int n = 0; n < 14; n++)
     {
@@ -443,4 +525,121 @@ void AsciiCity::generate()
         npc.timer = rnd();
         npcs.push_back(npc);
     }
+}
+
+const AsciiCity::Door *AsciiCity::doorAt(int x, int y) const
+{
+    for (const auto &d : doors)
+        if (d.x == x && d.y == y)
+            return &d;
+    return nullptr;
+}
+
+void AsciiCity::enterBuilding(const Door &d)
+{
+    savedPos = {px, py};
+
+    cTile = std::move(tile);
+    cCol = std::move(col);
+    cWin = std::move(win);
+    cKind = std::move(kind);
+    cSolid = std::move(solidMap);
+    cNpcs = std::move(npcs);
+    npcs.clear();
+
+    generateInterior(d); // fills tile/col/win/kind/solidMap/npcs
+    inside = true;
+    placeName = d.name;
+}
+
+void AsciiCity::leaveBuilding()
+{
+    tile = std::move(cTile);
+    col = std::move(cCol);
+    win = std::move(cWin);
+    kind = std::move(cKind);
+    solidMap = std::move(cSolid);
+    npcs = std::move(cNpcs);
+
+    inside = false;
+    placeName = "NEO-KOWLOON // WEB DISTRICT";
+    talking = false;
+
+    // savedPos is the door tile; step down onto the street below it
+    px = savedPos.x;
+    py = savedPos.y + 1.f;
+    clearSpawn(); // in case a wandering NPC is standing there
+}
+
+void AsciiCity::generateInterior(const Door &d)
+{
+    tile.assign(N, ' ');
+    col.assign(N, sf::Color::Black);
+    win.assign(N, sf::Color::Black);
+    kind.assign(N, 0);
+    solidMap.assign(N, 1); // everything solid until carved out
+
+    auto put = [&](int x, int y, char c, unsigned char k, sf::Color color, bool s)
+    {
+        int i = y * W + x;
+        tile[i] = c;
+        kind[i] = k;
+        col[i] = color;
+        solidMap[i] = s ? 1 : 0;
+    };
+
+    seed = d.seed; // same building = same interior every visit
+
+    const int RX = 40, RY = 28, RW = 24, RH = 14;
+    sf::Color trim = NEON[static_cast<int>(rnd() * 6)];
+    sf::Color accent = NEON[static_cast<int>(rnd() * 6)];
+
+    for (int y = RY; y < RY + RH; y++)
+        for (int x = RX; x < RX + RW; x++)
+        {
+            bool edge = x == RX || x == RX + RW - 1 || y == RY || y == RY + RH - 1;
+            if (edge)
+                put(x, y, y == RY ? '=' : '|', 1, y == RY ? trim : sf::Color(51, 67, 111), true);
+            else
+                put(x, y, (x + y) % 2 ? ':' : '.', 0, sf::Color(44, 56, 86), false);
+        }
+
+    // shop name on the back wall
+    int sx = RX + RW / 2 - static_cast<int>(d.name.size()) / 2;
+    for (size_t n = 0; n < d.name.size(); n++)
+        put(sx + static_cast<int>(n), RY, d.name[n], 3, accent, true);
+
+    // counter
+    for (int x = RX + 4; x < RX + RW - 4; x++)
+        put(x, RY + 3, '=', 1, accent, true);
+
+    // a few random tables / plants in the front half
+    for (int n = 0; n < 6; n++)
+    {
+        int x = RX + 2 + static_cast<int>(rnd() * (RW - 4));
+        int y = RY + 6 + static_cast<int>(rnd() * 5);
+        bool plant = rnd() < .4f;
+        put(x, y, plant ? 'Y' : 'o', 1, plant ? sf::Color(47, 174, 106) : sf::Color(180, 140, 90), true);
+    }
+
+    // exit door, bottom center
+    int ex = RX + RW / 2, ey = RY + RH - 1;
+    put(ex, ey, 'D', 4, sf::Color(255, 210, 63), false);
+    // keep the tiles in front of the door clear
+    put(ex, ey - 1, '.', 0, sf::Color(44, 56, 86), false);
+    put(ex, ey - 2, '.', 0, sf::Color(44, 56, 86), false);
+
+    // shopkeeper behind the counter
+    Npc keeper;
+    keeper.x = RX + RW / 2;
+    keeper.y = RY + 2;
+    keeper.name = "KEEPER";
+    keeper.color = accent;
+    keeper.fixed = true;
+    keeper.lines = {"Welcome to " + d.name + ".",
+                    "Nothing for sale yet. Come back later."};
+    npcs.push_back(keeper);
+
+    px = ex + .5f;
+    py = ey - 1.5f;
 }
