@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "soraeditor.h"
-
+#include <string>
+#include <random>
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -151,9 +152,105 @@ void SoraEditor::loadCommentsFrom(const string &fileName)
     black_.assign(code_.size(), 1);
     cursorPos_ = 0;
 }
+// =============================================================
+// Constant Header: a new copy is stamped every time the editor opens or closes
+// =============================================================
+const string HEADER = "//Hey dummy just ignore all this code yknow you wouldn't understand it anyway, but you could learn something if you tried.....";
 
+struct Stamp
+{
+    float x, y;
+}; // normalized 0-1 positions
+static vector<Stamp> stamps;
+static mt19937 rng{random_device{}()};
+static bool stampsLoaded = false;
+static bool pendingStamp = false; // set by open()/close(), handled in drawStamps
+
+static void loadStamps(const string &path = "clutter.txt")
+{
+    ifstream in(path);
+    Stamp s;
+    while (in >> s.x >> s.y)
+        stamps.push_back(s);
+}
+
+static void saveStamps(const string &path = "clutter.txt")
+{
+    ofstream out(path);
+    for (const auto &s : stamps)
+        out << s.x << " " << s.y << "\n";
+}
+
+static void addStamp(float textW, float textH, float winW, float winH)
+{
+    const float stampW = textW / winW;
+    const float stampH = textH / winH;
+    const float rangeX = max(0.f, 1.f - stampW);
+    const float rangeY = max(0.f, 1.f - stampH);
+
+    uniform_real_distribution<float> dist(0.f, 1.f);
+    Stamp s;
+
+    for (int attempt = 0; attempt < 500; ++attempt)
+    {
+        s.x = dist(rng) * rangeX;
+        s.y = dist(rng) * rangeY;
+
+        bool overlaps = false;
+        for (const auto &e : stamps)
+        {
+            if (s.x < e.x + stampW && s.x + stampW > e.x &&
+                s.y < e.y + stampH && s.y + stampH > e.y)
+            {
+                overlaps = true;
+                break;
+            }
+        }
+
+        if (!overlaps)
+        {
+            stamps.push_back(s);
+            return;
+        }
+    }
+
+    // No free spot left: allow overlap
+    s.x = dist(rng) * rangeX;
+    s.y = dist(rng) * rangeY;
+    stamps.push_back(s);
+}
+
+void drawStamps(sf::RenderWindow &window, const sf::Font &font)
+{
+    if (!stampsLoaded)
+    {
+        loadStamps();
+        stampsLoaded = true;
+    }
+
+    sf::Text text(font, HEADER, 14);
+    text.setFillColor(sf::Color(0, 0, 0, 120));
+
+    const float winW = static_cast<float>(window.getSize().x);
+    const float winH = static_cast<float>(window.getSize().y);
+
+    if (pendingStamp)
+    {
+        auto b = text.getLocalBounds();
+        addStamp(b.size.x, b.size.y, winW, winH);
+        saveStamps();
+        pendingStamp = false;
+    }
+
+    for (const auto &s : stamps)
+    {
+        text.setPosition({s.x * winW, s.y * winH});
+        window.draw(text);
+    }
+}
 void SoraEditor::open()
 {
+    pendingStamp = true;
     open_ = true;
     scrollOffset_ = 0.f;
     cursorPos_ = 0;
@@ -164,6 +261,7 @@ void SoraEditor::open()
 
 void SoraEditor::close()
 {
+    pendingStamp = true;
     open_ = false;
     menuOpen_ = -1;
 }
