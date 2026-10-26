@@ -1,5 +1,4 @@
-// cd "C:\Users\Noah\Desktop\visual novel"
-
+//Hey dummy just ignore all this code yknow you wouldn't understand it anyway, but you could learn something if you tried.....
 // // g++ anime.cpp Common.cpp ShiroTerminal.cpp RhythmTrack.cpp soraeditor.cpp HtmlShooterScreen.cpp AsciiCity.cpp RhythmMapEditor.cpp -I"C:\SFML\include" -L"C:\SFML\lib" -lsfml-graphics -lsfml-window -lsfml-system -o anime.exe
 // git restore anime.cpp   (undo uncommitted edits)
 #include <iostream>
@@ -1697,6 +1696,15 @@ int main()
             {
                 window.close();
             }
+            // ADMIN: Ctrl+C clears all stamps (works everywhere, even with the editor open)
+            if (const auto *adminKey = event->getIf<sf::Event::KeyPressed>())
+            {
+                if (adminKey->control && adminKey->code == sf::Keyboard::Key::C)
+                {
+                    clearStamps();
+                    continue;
+                }
+            }
 
             // =================================================
             // RHYTHM MAP EDITOR (modal: eats every event while open)
@@ -2022,6 +2030,7 @@ int main()
             {
                 window.clear();
                 mapEditor->draw(window, editorFont);
+                drawStamps(window, editorFont);
                 window.display();
                 continue; // skip game update/render while editing
             }
@@ -2034,6 +2043,7 @@ int main()
         {
             soraRank = soraEditor.lastBuildOk() ? gradeCode(soraEditor.code()) : 'F';
             soraPassed = (soraRank != 'F');
+            applyGradeToStamps(soraRank);
         }
 
         // =========================================================
@@ -2796,11 +2806,15 @@ int main()
                 // =================================================
 
                 soraEditor.draw(window);
+                
             }
         }
 
         window.draw(crt);
+        
+        drawStamps(window, editorFont);
         window.display();
+        continue;
     }
 
     // =========================================================

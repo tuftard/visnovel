@@ -164,3 +164,5 @@ private:
     bool onKey(const sf::Event::KeyPressed &k);
 };
 void drawStamps(sf::RenderWindow &window, const sf::Font &font);
+void clearStamps();
+void applyGradeToStamps(char rank);

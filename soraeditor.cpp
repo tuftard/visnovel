@@ -159,12 +159,15 @@ const string HEADER = "//Hey dummy just ignore all this code yknow you wouldn't 
 
 struct Stamp
 {
-    float x, y;
-}; // normalized 0-1 positions
+    float x, y; // normalized 0-1
+};
+
 static vector<Stamp> stamps;
 static mt19937 rng{random_device{}()};
 static bool stampsLoaded = false;
 static bool pendingStamp = false; // set by open()/close(), handled in drawStamps
+static bool stampsLocked = false; // A+ grade: no new stamps until the game is closed (never saved)
+static const float STAMP_ROW_H = 18.f; // one row per stamp, so copies never overlap
 
 static void loadStamps(const string &path = "clutter.txt")
 {
@@ -181,42 +184,37 @@ static void saveStamps(const string &path = "clutter.txt")
         out << s.x << " " << s.y << "\n";
 }
 
-static void addStamp(float textW, float textH, float winW, float winH)
+// Picks a random row nobody is using yet; if all rows are taken,
+// picks among the least-used rows.
+static void addStamp(float textW, float winW, float winH)
 {
-    const float stampW = textW / winW;
-    const float stampH = textH / winH;
-    const float rangeX = max(0.f, 1.f - stampW);
-    const float rangeY = max(0.f, 1.f - stampH);
-
-    uniform_real_distribution<float> dist(0.f, 1.f);
-    Stamp s;
-
-    for (int attempt = 0; attempt < 500; ++attempt)
+    static int frames = 0;
+    if (++frames % 120 == 0)
     {
-        s.x = dist(rng) * rangeX;
-        s.y = dist(rng) * rangeY;
+        printf("drawStamps alive: pending=%d stamps=%zu\n", pendingStamp ? 1 : 0, stamps.size());
+        fflush(stdout);
+    }
+    const int slots = max(1, static_cast<int>((winH - STAMP_ROW_H) / STAMP_ROW_H) + 1);
+    vector<int> used(slots, 0);
 
-        bool overlaps = false;
-        for (const auto &e : stamps)
-        {
-            if (s.x < e.x + stampW && s.x + stampW > e.x &&
-                s.y < e.y + stampH && s.y + stampH > e.y)
-            {
-                overlaps = true;
-                break;
-            }
-        }
-
-        if (!overlaps)
-        {
-            stamps.push_back(s);
-            return;
-        }
+    for (const auto &e : stamps)
+    {
+        int slot = clamp(static_cast<int>(lround(e.y * winH / STAMP_ROW_H)), 0, slots - 1);
+        used[slot]++;
     }
 
-    // No free spot left: allow overlap
-    s.x = dist(rng) * rangeX;
-    s.y = dist(rng) * rangeY;
+    int fewest = *min_element(used.begin(), used.end());
+    vector<int> candidates;
+    for (int i = 0; i < slots; i++)
+        if (used[i] == fewest)
+            candidates.push_back(i);
+
+    int slot = candidates[uniform_int_distribution<size_t>(0, candidates.size() - 1)(rng)];
+
+    float rangeX = max(0.f, 1.f - textW / winW);
+    Stamp s;
+    s.x = uniform_real_distribution<float>(0.f, 1.f)(rng) * rangeX;
+    s.y = (slot * STAMP_ROW_H) / winH;
     stamps.push_back(s);
 }
 
@@ -228,17 +226,23 @@ void drawStamps(sf::RenderWindow &window, const sf::Font &font)
         stampsLoaded = true;
     }
 
+    window.setView(window.getDefaultView()); // screen space, whatever the scene did
+
     sf::Text text(font, HEADER, 14);
-    text.setFillColor(sf::Color(0, 0, 0, 120));
+    text.setFillColor(sf::Color(255, 255, 255, 170)); // light fill + dark outline
+    text.setOutlineColor(sf::Color(0, 0, 0, 170));    // = readable on any background
+    text.setOutlineThickness(1.f);
 
     const float winW = static_cast<float>(window.getSize().x);
     const float winH = static_cast<float>(window.getSize().y);
 
     if (pendingStamp)
     {
-        auto b = text.getLocalBounds();
-        addStamp(b.size.x, b.size.y, winW, winH);
-        saveStamps();
+        if (!stampsLocked)
+        {
+            addStamp(text.getLocalBounds().size.x, winW, winH);
+            saveStamps();
+        }
         pendingStamp = false;
     }
 
@@ -248,8 +252,56 @@ void drawStamps(sf::RenderWindow &window, const sf::Font &font)
         window.draw(text);
     }
 }
+// admin tool: wipe every stamp and the saved file
+void clearStamps()
+{
+    stamps.clear();
+    stampsLoaded = true; // don't reload the old file afterwards
+    pendingStamp = false;
+    saveStamps(); // writes an empty clutter.txt
+}
+// called after each graded build
+void applyGradeToStamps(char rank)
+{
+    if (rank == 'F')
+        return;
+
+    if (!stampsLoaded)
+    {
+        loadStamps();
+        stampsLoaded = true;
+    }
+
+    shuffle(stamps.begin(), stamps.end(), rng); // so random ones are removed from the back
+
+    switch (rank)
+    {
+    case 'D':
+        if (!stamps.empty())
+            stamps.pop_back();
+        break;
+
+    case 'C':
+        stamps.erase(stamps.end() - static_cast<long long>(stamps.size() / 2), stamps.end());
+        break;
+
+    case 'B':
+        if (stamps.size() > 1)
+            stamps.erase(stamps.begin() + 1, stamps.end());
+        break;
+
+    default: // A, S, anything higher
+        stamps.clear();
+        stampsLocked = true;
+        break;
+    }
+
+    saveStamps();
+}
 void SoraEditor::open()
 {
+    printf("open() called\n");
+    fflush(stdout);
     pendingStamp = true;
     open_ = true;
     scrollOffset_ = 0.f;
@@ -620,6 +672,9 @@ void SoraEditor::execute(Cmd c)
     switch (c)
     {
     case Cmd::New:
+        printf("New clicked\n");
+        fflush(stdout);
+        pendingStamp = true;
         eraseText(0, code_.size());
         cursorPos_ = 0;
         scrollOffset_ = 0.f;
