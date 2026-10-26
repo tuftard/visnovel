@@ -46,6 +46,19 @@ private:
     static constexpr float SPAWN_Y = 34.5f;
     static constexpr float PLAYER_R = 0.3f; // half-size of the player's hitbox, in tiles
 
+    // ---- building interior room ----
+    static constexpr int ROOM_X = 40;
+    static constexpr int ROOM_Y = 28;
+    static constexpr int ROOM_W = 24;
+    static constexpr int ROOM_H = 14;
+
+    // ---- first-person ASCII view used inside buildings (tune these) ----
+    static constexpr int VIEW_COLS = 117;        // 117 * 11px  = whole 1280px screen
+    static constexpr int VIEW_ROWS = 36;         // 36  * 20px  = whole 720px screen
+    static constexpr float VIEW_FOV = 0.9f;      // camera plane length: bigger = wider view
+    static constexpr float TURN_SPEED = 2.4f;    // radians per second
+    static constexpr float INDOOR_SPEED = 0.55f; // walking speed multiplier indoors
+
     static inline const sf::Color NEON[6] = {
         {0, 229, 255}, {255, 45, 149}, {255, 210, 63}, {182, 107, 255}, {57, 255, 136}, {255, 122, 61}};
     struct Npc
@@ -88,6 +101,7 @@ private:
     std::vector<Npc> cNpcs;
 
     float px = SPAWN_X, py = SPAWN_Y;
+    float ang = -1.5707963f; // view direction indoors (radians, -pi/2 = facing "up")
     float t = 0.f;
     bool talking = false;
     bool onDoor = false; // true while standing on a door tile (fires once per step-on)
@@ -97,6 +111,13 @@ private:
     float toastT = 0.f;
     std::uint32_t seed = 2077;
     std::string pendingMap;
+
+    // ---- black hole warp between city <-> building (tune WARP_TIME) ----
+    static constexpr float WARP_TIME = 1.3f; // total seconds: close, swap, open
+    float warp = -1.f;                       // -1 = not warping, else 0..WARP_TIME
+    bool warpLeaving = false;                // true = leaving a building
+    bool warpSwapped = false;                // the swap already happened
+    Door warpDoor{0, 0, "", 0};              // building we are warping into
 
     float rnd();
     bool solidAt(int x, int y) const;
@@ -110,6 +131,13 @@ private:
     void enterBuilding(const Door &d);
     void leaveBuilding();
     void generateInterior(const Door &d);
+
+    // first-person raycast view, every cell filled with an ASCII character
+    void draw3D(sf::VertexArray &va, const sf::Font &font) const;
+
+    // black hole transition
+    void startWarp(const Door *d); // d = building to enter, nullptr = leave
+    void drawBlackHole(sf::RenderWindow &w, const sf::Font &font) const;
 
     static void glyph(sf::VertexArray &va, const sf::Font &f, char c,
                       float x, float y, sf::Color color);

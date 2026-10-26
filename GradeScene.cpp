@@ -159,13 +159,29 @@ void GradeScene::draw(sf::RenderWindow &w, const sf::Font &display, const sf::Fo
 
     txt(w, mono, "File   Mode Action        Step       Options      Help",
         wx + 8.f, wy + 32.f, 11, sf::Color(20, 40, 100));
+    // File menu dropdown
+    box(w, wx + 8.f, wy + 48.f, 80.f, 16.f, sf::Color(240, 240, 255), sf::Color(20, 40, 100), 1.f);
+    txt(w, mono, "New Game", wx + 12.f, wy + 50.f, 11, sf::Color(20, 40, 100));
+    box(w, wx + 8.f, wy + 64.f, 80.f, 16.f, sf::Color(240, 240, 255), sf::Color(20, 40, 100), 1.f);
+    txt(w, mono, "Load Game", wx + 12.f, wy + 66.f, 11, sf::Color(20, 40, 100));
+    // when typing is done, show the grade and comment
+    if (t_ > textStart)
+    {
+        size_t n = shown();
+        string comment = comment_.substr(0, n);
 
-    // White / Black name bars
-    box(w, wx + 8.f, wy + 50.f, 326.f, 38.f, sf::Color(235, 245, 255), sf::Color(20, 40, 100), 1.f);
-    txt(w, display, "WHITE", wx + 16.f, wy + 52.f, 26, sf::Color(30, 50, 130));
-    box(w, wx + 340.f, wy + 50.f, 332.f, 38.f, sf::Color(18, 48, 66), sf::Color(20, 40, 100), 1.f);
-    txt(w, display, "SORA", wx + 348.f, wy + 52.f, 26, sf::Color::White);
-
+        txt(w, display, "GRADE  " + string(1, grade_), wx + 30.f, wy + 60.f, 32,
+            sf::Color(240, 200, 110));
+        txt(w, display, comment, wx + 30.f, wy + 120.f, 20,
+            sf::Color(20, 40, 100));
+    }
+    // scanlines
+    for (int y = 0; y < 720; y += 2)
+        box(w, 0.f, static_cast<float>(y), 1280.f, 1.f,
+            sf::Color(255, 255, 255, 10));
+    // interactive exit with red button already seen in the window title bar, but also allow space/enter to exit
+    txt(w, mono, "Press SPACE to continue", wx + 30.f, wy + 580.f, 14, sf::Color(20, 40, 100));
+    // ing    
     // nav buttons
     const char *nav[5] = {"<<", "<", "P", ">", ">>"};
     for (int i = 0; i < 5; i++)

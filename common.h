@@ -30,6 +30,7 @@ namespace Syntax
 bool isKeyword(const std::string &token);
 bool isBuiltin(const std::string &token);
 std::string getClipboardText();
+char gradeCode(const std::string &raw);
 
 inline char scoreLetter(int score)
 {
