@@ -1,26 +1,6 @@
 // cd "C:\Users\Noah\Desktop\visual novel"
 
 // // g++ anime.cpp Common.cpp ShiroTerminal.cpp RhythmTrack.cpp soraeditor.cpp HtmlShooterScreen.cpp AsciiCity.cpp RhythmMapEditor.cpp -I"C:\SFML\include" -L"C:\SFML\lib" -lsfml-graphics -lsfml-window -lsfml-system -o anime.exe
-// (add AimGame.cpp etc. to that line if they are not already part of your build)
-// ---------------- GIT: stop tracking exe + backups ----------------
-// Run each line separately in PowerShell, in this folder.
-//
-// type .gitignore
-//   (if it prints nothing, run the next line to fill it)
-// Set-Content .gitignore "*.exe`ntest.cpp`nanime_backup*.cpp`nanime_mybackup.cpp`nanime_before_build.cpp"
-//
-// git rm --cached anime.exe anime_mybackup.cpp anime_backup_cursor.cpp anime_before_build.cpp
-// git add .
-// git commit -m "stop tracking exe and backups"
-// git push
-//
-// git status   (should say: nothing to commit, working tree clean)
-//
-// ---------------- GIT: everyday saving ----------------
-// git add .
-// git commit -m "split HtmlShooterScreen into its own files"
-// git push
-//
 // git restore anime.cpp   (undo uncommitted edits)
 #include <iostream>
 #include <string>
@@ -289,7 +269,7 @@ bool loadPiskelFrames(
 
                 if (!frameTexture.loadFromImage(frameImage))
                 {
-                    cout << "FAILED TO LOAD PISKEL FRAME "
+                    cout << "rip piskel "
                          << frame << "\n";
 
                     return false;
@@ -850,7 +830,6 @@ namespace Themes
     inline const CharTheme shiro{{255, 244, 250, 235}, {255, 105, 170}, {255, 255, 255}, {150, 40, 105}};
     inline const CharTheme tet{{30, 10, 50, 228}, {255, 40, 120}, {70, 200, 255}, {255, 255, 255}};
 }
-
 inline sf::Color withA(sf::Color c, int a)
 {
     c.a = static_cast<std::uint8_t>(a);
@@ -1153,6 +1132,7 @@ int main()
     soraEditor.loadCommentsFrom("anime.cpp");
 
     bool soraPassed = false; // set once Sora's code builds clean
+    char soraRank = 'F';
 
     // =========================================================
     // OVERWORLD / RPG STATE
@@ -2050,9 +2030,11 @@ int main()
         // =========================================================
         // SORA EDITOR: react to a finished build
         // =========================================================
-
-        if (soraEditor.takeBuildEvent() && soraEditor.lastBuildOk())
-            soraPassed = true;
+        if (soraEditor.takeBuildEvent())
+        {
+            soraRank = soraEditor.lastBuildOk() ? gradeCode(soraEditor.code()) : 'F';
+            soraPassed = (soraRank != 'F');
+        }
 
         // =========================================================
         // RHYTHM UPDATE
@@ -2318,10 +2300,10 @@ int main()
             resultWon = (shiroHP <= 0);
             resultTimer = resultWon ? 0.f : 2.5f;
 
-            resultText = resultWon ? (lastWasBoss ? "Oh Wow... BLank won't ever lose to you though..." : "BUG SQUASHED")
+            resultText = resultWon ? (lastWasBoss ? "Oh Wow... " : "BUG SQUASHED")
                                    : "YOU FELL OFF THE EDGE PUNK!!!!!";
             if (resultWon)
-                results.open(stats, score, resultText);
+                grading.open(stats, score, scoreLetter(score));
             if (shiroHP <= 0 && lastWasBoss)
                 beatShiro = true;
 
@@ -2784,8 +2766,13 @@ int main()
                     window.draw(soraNameBox);
 
                     window.draw(soraDialogueName);
+                    if (soraRank == 'F' && soraEditor.lastOutput() != "")
+                        dialogueTextS1.setString("F. No intro, character select, and lines? Try again.");
                     if (soraPassed)
-                        dialogueTextS1.setString("C. Didn't know you were so technical.");
+                        dialogueTextS1.setString(string(1, soraRank) + ". Didn't know you were so technical.");
+                    else if (soraRank == 'F' && soraEditor.lastOutput() != "")
+                        dialogueTextS1.setString("F. No intro??? characters??? and not to mention the lines??? Try again bud.");
+                    window.draw(dialogueTextS1);
                     window.draw(dialogueTextS1);
                 }
 

@@ -15,6 +15,70 @@ using namespace std;
 // =============================================================
 // SETUP
 // =============================================================
+namespace Retro
+{
+    const sf::Color Desktop(30, 130, 225);
+    const sf::Color Frame(190, 225, 250);
+    const sf::Color TitleTop(240, 250, 255);
+    const sf::Color TitleBot(150, 200, 240);
+    const sf::Color Panel(215, 235, 250); // code background
+    const sf::Color Navy(20, 30, 90);     // text + status bar
+    const sf::Color Royal(45, 65, 185);   // checker dark
+    const sf::Color Mint(165, 240, 190);  // checker light
+    const sf::Color Cream(245, 232, 140); // output panel
+    const sf::Color Close(235, 90, 120);
+    const sf::Color Orange(240, 150, 50); // popup dashed border
+    const sf::Color Hi(255, 255, 255);    // bevel light
+    const sf::Color Lo(90, 120, 170);     // bevel dark
+}
+
+namespace Light
+{
+    const sf::Color text = Retro::Navy;
+    const sf::Color keyword(45, 65, 185);
+    const sf::Color builtin(0, 120, 150);
+    const sf::Color str(190, 40, 110);
+    const sf::Color number(220, 110, 20);
+    const sf::Color comment(110, 140, 170);
+    const sf::Color intro = sf::Color::Black; // original typed-out words
+}
+
+static void bevelBox(sf::RenderTarget &t, sf::FloatRect r, sf::Color fill, bool raised = true)
+{
+    sf::RectangleShape box(r.size);
+    box.setPosition(r.position);
+    box.setFillColor(fill);
+    t.draw(box);
+
+    sf::Color tl = raised ? Retro::Hi : Retro::Lo;
+    sf::Color br = raised ? Retro::Lo : Retro::Hi;
+
+    sf::RectangleShape e;
+    e.setFillColor(tl);
+    e.setSize({r.size.x, 2});
+    e.setPosition(r.position);
+    t.draw(e);
+    e.setSize({2, r.size.y});
+    e.setPosition(r.position);
+    t.draw(e);
+    e.setFillColor(br);
+    e.setSize({r.size.x, 2});
+    e.setPosition({r.position.x, r.position.y + r.size.y - 2});
+    t.draw(e);
+    e.setSize({2, r.size.y});
+    e.setPosition({r.position.x + r.size.x - 2, r.position.y});
+    t.draw(e);
+}
+
+static void gradientBar(sf::RenderTarget &t, sf::FloatRect r, sf::Color top, sf::Color bot)
+{
+    sf::VertexArray v(sf::PrimitiveType::TriangleStrip, 4);
+    v[0] = sf::Vertex(r.position, top);
+    v[1] = sf::Vertex({r.position.x + r.size.x, r.position.y}, top);
+    v[2] = sf::Vertex({r.position.x, r.position.y + r.size.y}, bot);
+    v[3] = sf::Vertex({r.position.x + r.size.x, r.position.y + r.size.y}, bot);
+    t.draw(v);
+}
 
 SoraEditor::SoraEditor(const sf::Font &monoFont) : font_(&monoFont)
 {
@@ -22,11 +86,11 @@ SoraEditor::SoraEditor(const sf::Font &monoFont) : font_(&monoFont)
 
     background_.setSize({1200.f, 620.f});
     background_.setPosition({30.f, 20.f});
-    background_.setFillColor(sf::Color(32, 32, 31, 250));
+    background_.setFillColor(Retro::Frame);
 
     titleBar_.setSize({1200.f, 28.f});
     titleBar_.setPosition({30.f, 20.f});
-    titleBar_.setFillColor(sf::Color::Blue);
+    titleBar_.setFillColor(sf::Color::Cyan);
 
     closeBtn_.setSize({16.f, 16.f});
     closeBtn_.setPosition({1198.f, 26.f});
@@ -39,7 +103,23 @@ SoraEditor::SoraEditor(const sf::Font &monoFont) : font_(&monoFont)
     buildBtn_.setOutlineThickness(1.f);
 
     cursor_.setSize({2.f, 16.f});
-    cursor_.setFillColor(sf::Color(0, 220, 255));
+    cursor_.setFillColor(Retro::Navy);
+
+    buildMenus();
+}
+
+// keeps the black_ flags the same length as code_
+void SoraEditor::insertText(size_t pos, const string &s)
+{
+    code_.insert(pos, s);
+    black_.insert(black_.begin() + static_cast<long long>(pos), s.size(), static_cast<char>(0));
+}
+
+void SoraEditor::eraseText(size_t pos, size_t n)
+{
+    code_.erase(pos, n);
+    black_.erase(black_.begin() + static_cast<long long>(pos),
+                 black_.begin() + static_cast<long long>(pos + n));
 }
 
 void SoraEditor::loadCommentsFrom(const string &fileName)
@@ -67,6 +147,8 @@ void SoraEditor::loadCommentsFrom(const string &fileName)
         }
     }
 
+    // everything loaded so far is the original intro text: draw it black
+    black_.assign(code_.size(), 1);
     cursorPos_ = 0;
 }
 
@@ -76,16 +158,18 @@ void SoraEditor::open()
     scrollOffset_ = 0.f;
     cursorPos_ = 0;
     lastCursor_ = static_cast<size_t>(-1);
+    menuOpen_ = -1;
     cursorClock_.restart();
 }
 
 void SoraEditor::close()
 {
     open_ = false;
+    menuOpen_ = -1;
 }
 
 // =============================================================
-// SAVE / BUILD
+// SAVE / BUILD / RUN
 // =============================================================
 
 bool SoraEditor::save() const
@@ -99,7 +183,24 @@ bool SoraEditor::save() const
     return true;
 }
 
-bool SoraEditor::build()
+void SoraEditor::runExe()
+{
+    ifstream exe("test.exe", ios::binary);
+
+    if (!exe.is_open())
+    {
+        buildOk_ = false;
+        buildOutput_ = "No test.exe yet - build first.";
+        return;
+    }
+
+    exe.close();
+
+    // test code may use cin, so give it its own console window
+    system("start \"\" cmd /k test.exe");
+}
+
+bool SoraEditor::build(bool launch)
 {
     builtFlag_ = true;
     buildOk_ = false;
@@ -137,9 +238,366 @@ bool SoraEditor::build()
     buildOk_ = true;
     buildOutput_ = output.empty() ? "Build succeeded - 0 errors." : output;
 
-    // test code may use cin, so give it its own console window
-    system("start \"\" cmd /k test.exe");
+    if (launch)
+        runExe();
+
     return true;
+}
+
+// =============================================================
+// MENU BAR
+// =============================================================
+
+void SoraEditor::buildMenus()
+{
+    menuNames_ = {"File", "Edit", "Build", "View"};
+
+    menus_.clear();
+    menus_.resize(4);
+
+    // File
+    menus_[0] = {
+        {"New", "", Cmd::New, false},
+        {"Save", "Ctrl+S", Cmd::Save, false},
+        {"", "", Cmd::None, true},
+        {"Close Editor", "", Cmd::CloseEditor, false},
+    };
+
+    // Edit
+    menus_[1] = {
+        {"Undo", "Ctrl+Z", Cmd::Undo, false},
+        {"Redo", "Ctrl+Y", Cmd::Redo, false},
+        {"", "", Cmd::None, true},
+        {"Paste", "Ctrl+V", Cmd::Paste, false},
+        {"", "", Cmd::None, true},
+        {"Copy Line", "", Cmd::CopyLine, false},
+        {"Cut Line", "", Cmd::CutLine, false},
+        {"Delete Line", "", Cmd::DeleteLine, false},
+        {"Duplicate Line", "", Cmd::DuplicateLine, false},
+    };
+
+    // Build
+    menus_[2] = {
+        {"Build & Run", "F5", Cmd::BuildRun, false},
+        {"Build Only", "", Cmd::BuildOnly, false},
+        {"Run", "F6", Cmd::RunOnly, false},
+        {"", "", Cmd::None, true},
+        {"Clear Output", "", Cmd::ClearOutput, false},
+    };
+
+    // View
+    menus_[3] = {
+        {"Scanlines", "", Cmd::ToggleScanlines, false},
+        {"Intro Text Black", "", Cmd::ToggleIntroBlack, false},
+        {"", "", Cmd::None, true},
+        {"Go to Top", "", Cmd::GoTop, false},
+        {"Go to Bottom", "", Cmd::GoBottom, false},
+    };
+}
+
+sf::FloatRect SoraEditor::headerRect(int m) const
+{
+    return {{menuX + static_cast<float>(m) * (menuHeaderW + menuGap), menuY},
+            {menuHeaderW, menuHeaderH}};
+}
+
+sf::FloatRect SoraEditor::dropRect(int m) const
+{
+    sf::FloatRect h = headerRect(m);
+    float total = 0.f;
+
+    for (const MenuItem &it : menus_[m])
+        total += it.sep ? 8.f : 22.f;
+
+    return {{h.position.x, h.position.y + h.size.y}, {menuW, total + 6.f}};
+}
+
+sf::FloatRect SoraEditor::itemRect(int m, int j) const
+{
+    sf::FloatRect h = headerRect(m);
+    float y = h.position.y + h.size.y + 3.f;
+
+    for (int k = 0; k < j; k++)
+        y += menus_[m][k].sep ? 8.f : 22.f;
+
+    float ht = menus_[m][j].sep ? 8.f : 22.f;
+    return {{h.position.x + 2.f, y}, {menuW - 4.f, ht}};
+}
+
+void SoraEditor::drawMenus(sf::RenderWindow &window)
+{
+    // header buttons (always visible)
+    for (int i = 0; i < static_cast<int>(menuNames_.size()); i++)
+    {
+        sf::FloatRect r = headerRect(i);
+        bool hot = r.contains(mouse_);
+
+        if (menuOpen_ == i)
+            bevelBox(window, r, Retro::Panel, false);
+        else if (hot)
+            bevelBox(window, r, Retro::TitleTop, true);
+
+        sf::Text t(*font_, menuNames_[i], 13);
+        t.setPosition({r.position.x + 9.f, r.position.y + 3.f});
+        t.setFillColor(Retro::Navy);
+        window.draw(t);
+    }
+
+    if (menuOpen_ < 0)
+        return;
+
+    // dropdown
+    bevelBox(window, dropRect(menuOpen_), Retro::TitleTop, true);
+
+    for (int j = 0; j < static_cast<int>(menus_[menuOpen_].size()); j++)
+    {
+        const MenuItem &it = menus_[menuOpen_][j];
+        sf::FloatRect r = itemRect(menuOpen_, j);
+
+        if (it.sep)
+        {
+            sf::RectangleShape line({r.size.x - 12.f, 1.f});
+            line.setPosition({r.position.x + 6.f, r.position.y + 4.f});
+            line.setFillColor(Retro::Lo);
+            window.draw(line);
+            continue;
+        }
+
+        bool hot = r.contains(mouse_);
+
+        if (hot)
+        {
+            sf::RectangleShape bar(r.size);
+            bar.setPosition(r.position);
+            bar.setFillColor(Retro::Royal);
+            window.draw(bar);
+        }
+
+        sf::Color fg = hot ? sf::Color::White : Retro::Navy;
+
+        // check mark for toggles
+        bool checked = (it.cmd == Cmd::ToggleScanlines && showScanlines_) ||
+                       (it.cmd == Cmd::ToggleIntroBlack && showIntroBlack_);
+
+        if (checked)
+        {
+            sf::Text ck(*font_, "x", 13);
+            ck.setPosition({r.position.x + 6.f, r.position.y + 3.f});
+            ck.setFillColor(fg);
+            window.draw(ck);
+        }
+
+        sf::Text label(*font_, it.label, 13);
+        label.setPosition({r.position.x + 22.f, r.position.y + 3.f});
+        label.setFillColor(fg);
+        window.draw(label);
+
+        if (!it.hint.empty())
+        {
+            float hw = static_cast<float>(it.hint.size()) * cw_ * 12.f / 14.f;
+            sf::Text hint(*font_, it.hint, 12);
+            hint.setPosition({r.position.x + r.size.x - hw - 8.f, r.position.y + 4.f});
+            hint.setFillColor(hot ? sf::Color::White : Retro::Lo);
+            window.draw(hint);
+        }
+    }
+}
+
+// =============================================================
+// MENU COMMANDS
+// =============================================================
+
+size_t SoraEditor::lineEndOf(size_t pos) const
+{
+    size_t e = code_.find('\n', pos);
+    return e == string::npos ? code_.size() : e;
+}
+
+void SoraEditor::undo()
+{
+    if (undo_.empty())
+        return;
+
+    redo_.push_back({code_, black_, cursorPos_});
+
+    Snapshot s = undo_.back();
+    undo_.pop_back();
+
+    code_ = s.code;
+    black_ = s.black;
+    cursorPos_ = min(s.cursor, code_.size());
+    lastCursor_ = static_cast<size_t>(-1);
+    cursorClock_.restart();
+}
+
+void SoraEditor::redo()
+{
+    if (redo_.empty())
+        return;
+
+    undo_.push_back({code_, black_, cursorPos_});
+
+    Snapshot s = redo_.back();
+    redo_.pop_back();
+
+    code_ = s.code;
+    black_ = s.black;
+    cursorPos_ = min(s.cursor, code_.size());
+    lastCursor_ = static_cast<size_t>(-1);
+    cursorClock_.restart();
+}
+
+void SoraEditor::execute(Cmd c)
+{
+    // commands that never change the text
+    switch (c)
+    {
+    case Cmd::Undo:
+        undo();
+        return;
+
+    case Cmd::Redo:
+        redo();
+        return;
+
+    case Cmd::Save:
+        buildOk_ = save();
+        buildOutput_ = buildOk_ ? "Saved test.cpp" : "Could not write test.cpp";
+        return;
+
+    case Cmd::CloseEditor:
+        close();
+        return;
+
+    case Cmd::CopyLine:
+    {
+        size_t ls = lineStart(cursorPos_);
+        sf::Clipboard::setString(code_.substr(ls, lineEndOf(ls) - ls));
+        return;
+    }
+
+    case Cmd::BuildRun:
+        build(true);
+        return;
+
+    case Cmd::BuildOnly:
+        build(false);
+        return;
+
+    case Cmd::RunOnly:
+        runExe();
+        return;
+
+    case Cmd::ClearOutput:
+        buildOutput_.clear();
+        buildOk_ = true;
+        return;
+
+    case Cmd::ToggleScanlines:
+        showScanlines_ = !showScanlines_;
+        return;
+
+    case Cmd::ToggleIntroBlack:
+        showIntroBlack_ = !showIntroBlack_;
+        return;
+
+    case Cmd::GoTop:
+        cursorPos_ = 0;
+        scrollOffset_ = 0.f;
+        lastCursor_ = static_cast<size_t>(-1);
+        return;
+
+    case Cmd::GoBottom:
+        cursorPos_ = code_.size();
+        lastCursor_ = static_cast<size_t>(-1);
+        return;
+
+    default:
+        break;
+    }
+
+    // commands that edit the text: remember the old state for undo
+    Snapshot before{code_, black_, cursorPos_};
+
+    switch (c)
+    {
+    case Cmd::New:
+        eraseText(0, code_.size());
+        cursorPos_ = 0;
+        scrollOffset_ = 0.f;
+        buildOutput_ = "New file.";
+        buildOk_ = true;
+        break;
+
+    case Cmd::Paste:
+        paste();
+        break;
+
+    case Cmd::CutLine:
+    {
+        size_t ls = lineStart(cursorPos_);
+        size_t le = lineEndOf(ls);
+        sf::Clipboard::setString(code_.substr(ls, le - ls));
+
+        size_t from = ls;
+        size_t to = le;
+
+        if (le < code_.size())
+            to = le + 1; // take the newline with the line
+        else if (ls > 0)
+            from = ls - 1; // last line: take the newline before it
+
+        eraseText(from, to - from);
+        cursorPos_ = min(from, code_.size());
+        break;
+    }
+
+    case Cmd::DeleteLine:
+    {
+        size_t ls = lineStart(cursorPos_);
+        size_t le = lineEndOf(ls);
+
+        size_t from = ls;
+        size_t to = le;
+
+        if (le < code_.size())
+            to = le + 1;
+        else if (ls > 0)
+            from = ls - 1;
+
+        eraseText(from, to - from);
+        cursorPos_ = min(from, code_.size());
+        break;
+    }
+
+    case Cmd::DuplicateLine:
+    {
+        size_t ls = lineStart(cursorPos_);
+        size_t le = lineEndOf(ls);
+        size_t column = cursorPos_ - ls;
+        string line = code_.substr(ls, le - ls);
+
+        insertText(le, "\n" + line);
+        cursorPos_ = le + 1 + min(column, line.size());
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    if (code_ != before.code)
+    {
+        undo_.push_back(before);
+
+        if (undo_.size() > 200)
+            undo_.erase(undo_.begin());
+
+        redo_.clear();
+    }
+
+    lastCursor_ = static_cast<size_t>(-1);
+    cursorClock_.restart();
 }
 
 // =============================================================
@@ -292,7 +750,7 @@ void SoraEditor::paste()
             formatted += indent;
     }
 
-    code_.insert(cursorPos_, formatted);
+    insertText(cursorPos_, formatted);
     cursorPos_ += formatted.size();
 }
 
@@ -309,11 +767,11 @@ void SoraEditor::onText(char32_t unicode)
 
     if (column >= static_cast<size_t>(maxColumns))
     {
-        code_.insert(cursorPos_, 1, '\n');
+        insertText(cursorPos_, "\n");
         cursorPos_++;
     }
 
-    code_.insert(cursorPos_, 1, static_cast<char>(unicode));
+    insertText(cursorPos_, string(1, static_cast<char>(unicode)));
     cursorPos_++;
 }
 
@@ -327,10 +785,20 @@ bool SoraEditor::onKey(const sf::Event::KeyPressed &k)
         return true;
     }
 
+    if (k.control && k.code == Key::S)
+    {
+        execute(Cmd::Save);
+        return true;
+    }
+
     switch (k.code)
     {
     case Key::F5:
-        build();
+        build(true);
+        break;
+
+    case Key::F6:
+        runExe();
         break;
 
     case Key::Home:
@@ -338,21 +806,18 @@ bool SoraEditor::onKey(const sf::Event::KeyPressed &k)
         break;
 
     case Key::End:
-    {
-        size_t end = code_.find('\n', cursorPos_);
-        cursorPos_ = (end == string::npos) ? code_.size() : end;
+        cursorPos_ = lineEndOf(cursorPos_);
         break;
-    }
 
     case Key::Tab:
-        code_.insert(cursorPos_, "    ");
+        insertText(cursorPos_, "    ");
         cursorPos_ += 4;
         break;
 
     case Key::Backspace:
         if (cursorPos_ > 0)
         {
-            code_.erase(cursorPos_ - 1, 1);
+            eraseText(cursorPos_ - 1, 1);
             cursorPos_--;
         }
         break;
@@ -366,14 +831,14 @@ bool SoraEditor::onKey(const sf::Event::KeyPressed &k)
             indentEnd++;
 
         string nl = "\n" + code_.substr(start, indentEnd - start);
-        code_.insert(cursorPos_, nl);
+        insertText(cursorPos_, nl);
         cursorPos_ += nl.size();
         break;
     }
 
     case Key::Delete:
         if (cursorPos_ < code_.size())
-            code_.erase(cursorPos_, 1);
+            eraseText(cursorPos_, 1);
         break;
 
     case Key::Left:
@@ -407,11 +872,55 @@ bool SoraEditor::handleEvent(const sf::Event &e)
     if (!open_)
         return false;
 
+    // hover tracking (also lets you slide between menus while one is open)
+    if (const auto *mv = e.getIf<sf::Event::MouseMoved>())
+    {
+        mouse_ = sf::Vector2f(mv->position);
+
+        if (menuOpen_ >= 0)
+        {
+            for (int i = 0; i < static_cast<int>(menuNames_.size()); i++)
+                if (headerRect(i).contains(mouse_))
+                    menuOpen_ = i;
+        }
+
+        return false;
+    }
+
     if (const auto *m = e.getIf<sf::Event::MouseButtonPressed>())
     {
         if (m->button == sf::Mouse::Button::Left)
         {
             sf::Vector2f p(m->position);
+            mouse_ = p;
+
+            // menu headers
+            for (int i = 0; i < static_cast<int>(menuNames_.size()); i++)
+            {
+                if (headerRect(i).contains(p))
+                {
+                    menuOpen_ = (menuOpen_ == i) ? -1 : i;
+                    return true;
+                }
+            }
+
+            // open dropdown: pick an item, or click away to close
+            if (menuOpen_ >= 0)
+            {
+                int menu = menuOpen_;
+                int hit = -1;
+
+                for (int j = 0; j < static_cast<int>(menus_[menu].size()); j++)
+                    if (!menus_[menu][j].sep && itemRect(menu, j).contains(p))
+                        hit = j;
+
+                menuOpen_ = -1;
+
+                if (hit >= 0)
+                    execute(menus_[menu][hit].cmd);
+
+                return true;
+            }
 
             if (closeBtn_.getGlobalBounds().contains(p))
             {
@@ -421,7 +930,7 @@ bool SoraEditor::handleEvent(const sf::Event &e)
 
             if (buildBtn_.getGlobalBounds().contains(p))
             {
-                build();
+                build(true);
                 return true;
             }
 
@@ -435,13 +944,62 @@ bool SoraEditor::handleEvent(const sf::Event &e)
 
     if (const auto *t = e.getIf<sf::Event::TextEntered>())
     {
+        Snapshot before{code_, black_, cursorPos_};
+
         onText(t->unicode);
+
+        if (code_ != before.code)
+        {
+            undo_.push_back(before);
+
+            if (undo_.size() > 200)
+                undo_.erase(undo_.begin());
+
+            redo_.clear();
+        }
+
         return true;
     }
 
     if (const auto *k = e.getIf<sf::Event::KeyPressed>())
     {
+        using Key = sf::Keyboard::Key;
+
+        if (menuOpen_ >= 0)
+        {
+            menuOpen_ = -1;
+
+            if (k->code == Key::Escape)
+                return true;
+        }
+
+        // undo / redo manage the stacks themselves
+        if (k->control && k->code == Key::Z)
+        {
+            undo();
+            return true;
+        }
+
+        if (k->control && k->code == Key::Y)
+        {
+            redo();
+            return true;
+        }
+
+        Snapshot before{code_, black_, cursorPos_};
+
         onKey(*k);
+
+        if (code_ != before.code)
+        {
+            undo_.push_back(before);
+
+            if (undo_.size() > 200)
+                undo_.erase(undo_.begin());
+
+            redo_.clear();
+        }
+
         return true;
     }
 
@@ -456,6 +1014,39 @@ bool SoraEditor::handleEvent(const sf::Event &e)
 }
 
 // =============================================================
+// SoraEditor Scanlines
+// =============================================================
+void SoraEditor::rebuildScanlines()
+{
+    scanlines_.clear();
+    const sf::Color c(0, 20, 60, 28);
+
+    for (float y = 20.f; y <= 640.f; y += 2.f)
+    {
+        scanlines_.append(sf::Vertex({30.f, y}, c));
+        scanlines_.append(sf::Vertex({1230.f, y}, c));
+    }
+
+    cachedTop_ = codeTop;
+    cachedBottom_ = codeBottom;
+    cachedLeft_ = codeLeft;
+    cachedRight_ = codeRight;
+}
+
+void SoraEditor::drawScanlines(sf::RenderWindow &window)
+{
+    if (!open_ || !showScanlines_)
+        return;
+
+    if (scanlines_.getVertexCount() == 0 ||
+        codeTop != cachedTop_ || codeBottom != cachedBottom_ ||
+        codeLeft != cachedLeft_ || codeRight != cachedRight_)
+        rebuildScanlines();
+
+    window.draw(scanlines_);
+}
+
+// =============================================================
 // DRAW
 // =============================================================
 
@@ -464,17 +1055,29 @@ void SoraEditor::draw(sf::RenderWindow &window)
     if (!open_)
         return;
 
+    // keep the black flags valid even if code_ was changed from outside
+    if (black_.size() != code_.size())
+        black_.resize(code_.size(), 0);
+
     window.draw(background_);
-    window.draw(titleBar_);
+    bevelBox(window, {{30.f, 20.f}, {1200.f, 620.f}}, Retro::Frame, true);
+    gradientBar(window, {{32.f, 22.f}, {1196.f, 26.f}}, Retro::TitleTop, Retro::TitleBot);
 
     sf::Text title(*font_);
     title.setString("Disboard IDE - [anime.cpp]");
     title.setCharacterSize(13);
-    title.setPosition({30.f, 25.f});
-    title.setFillColor(sf::Color::White);
+    title.setPosition({40.f, 27.f});
+    title.setFillColor(Retro::Navy);
     window.draw(title);
 
-    window.draw(closeBtn_);
+    bevelBox(window, closeBtn_.getGlobalBounds(), Retro::Close, true);
+    sf::Text x(*font_, "x", 13);
+    x.setPosition({closeBtn_.getPosition().x + 4.f, closeBtn_.getPosition().y});
+    x.setFillColor(sf::Color::White);
+    window.draw(x);
+
+    // sunken code panel behind the text
+    bevelBox(window, {{40.f, 52.f}, {1175.f, 433.f}}, Retro::Panel, false);
 
     cursorPos_ = min(cursorPos_, code_.size());
 
@@ -512,6 +1115,24 @@ void SoraEditor::draw(sf::RenderWindow &window)
         drawX += static_cast<float>(s.size()) * cw_;
     };
 
+    // draws code_[a, b): original intro characters in black, everything else in syntaxColor
+    auto drawSpan = [&](size_t a, size_t b, sf::Color syntaxColor)
+    {
+        size_t j = a;
+
+        while (j < b)
+        {
+            bool isBlack = showIntroBlack_ && black_[j] != 0;
+            size_t k = j;
+
+            while (k < b && (showIntroBlack_ && black_[k] != 0) == isBlack)
+                k++;
+
+            drawRun(code_.substr(j, k - j), isBlack ? Light::intro : syntaxColor);
+            j = k;
+        }
+    };
+
     size_t i = 0;
 
     while (i < code_.size())
@@ -537,7 +1158,7 @@ void SoraEditor::draw(sf::RenderWindow &window)
             if (end == string::npos)
                 end = code_.size();
 
-            drawRun(code_.substr(i, end - i), Syntax::comment);
+            drawSpan(i, end, Light::comment);
             i = end;
             continue;
         }
@@ -555,7 +1176,7 @@ void SoraEditor::draw(sf::RenderWindow &window)
             if (end == string::npos || end > eol)
                 end = (eol > i) ? eol - 1 : i;
 
-            drawRun(code_.substr(i, end - i + 1), Syntax::green);
+            drawSpan(i, end + 1, Light::str);
             i = end + 1;
             continue;
         }
@@ -571,10 +1192,10 @@ void SoraEditor::draw(sf::RenderWindow &window)
 
             string token = code_.substr(start, i - start);
 
-            sf::Color color = isKeyword(token)   ? Syntax::keyword
-                              : isBuiltin(token) ? Syntax::orange
-                                                 : Syntax::text;
-            drawRun(token, color);
+            sf::Color color = isKeyword(token)   ? Light::keyword
+                              : isBuiltin(token) ? Light::builtin
+                                                 : Light::text;
+            drawSpan(start, i, color);
             continue;
         }
 
@@ -587,11 +1208,11 @@ void SoraEditor::draw(sf::RenderWindow &window)
                    (isdigit(static_cast<unsigned char>(code_[i])) || code_[i] == '.'))
                 i++;
 
-            drawRun(code_.substr(start, i - start), Syntax::orange);
+            drawSpan(start, i, Light::number);
             continue;
         }
 
-        drawRun(string(1, c), Syntax::text);
+        drawSpan(i, i + 1, Light::text);
         i++;
     }
 
@@ -612,15 +1233,29 @@ void SoraEditor::draw(sf::RenderWindow &window)
         }
     }
 
-    // build button
-    window.draw(buildBtn_);
-
+    // build button + status strip
+    bevelBox(window, buildBtn_.getGlobalBounds(), Retro::Mint, true);
     sf::Text buildText(*font_, "BUILD", 18);
     buildText.setPosition({590.f, 498.f});
+    buildText.setFillColor(Retro::Navy);
     window.draw(buildText);
 
+    sf::RectangleShape status({495.f, 40.f});
+    status.setPosition({40.f, 490.f});
+    status.setFillColor(Retro::Navy);
+    window.draw(status);
+    sf::Text st(*font_, "anime.cpp    F5 = build", 14);
+    st.setPosition({50.f, 500.f});
+    st.setFillColor(Retro::TitleTop);
+    window.draw(st);
+
+    // cream output panel
+    bevelBox(window, {{40.f, 538.f}, {1175.f, 92.f}}, Retro::Cream, false);
     sf::Text outText(*font_, buildOutput_.substr(0, 300), 12);
-    outText.setFillColor(buildOk_ ? sf::Color(0, 235, 190) : sf::Color(255, 90, 110));
-    outText.setPosition({45.f, 540.f});
+    outText.setFillColor(buildOk_ ? sf::Color(20, 110, 60) : sf::Color(190, 30, 60));
+    outText.setPosition({50.f, 545.f});
     window.draw(outText);
+
+    // menu bar and dropdown go last so they sit on top of everything
+    drawMenus(window);
 }
