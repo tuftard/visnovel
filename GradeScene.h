@@ -4,6 +4,7 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Window/Event.hpp>
 #include "BattleStats.h"
+#include "MiniChess.h"
 
 class GradeScene
 {
@@ -29,6 +30,8 @@ private:
     int unique_ = 0;
     char grade_ = 'A';
     std::string comment_;
+
+    MiniChess chess_;
 
     size_t shown() const;
 };

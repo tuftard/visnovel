@@ -1,6 +1,9 @@
 #include "GradeScene.h"
+#include "MiniChess.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -8,6 +11,11 @@ using namespace std;
 
 namespace
 {
+    // board placement (matches wx + 12, wy + 114 in draw())
+    constexpr float kBoardX = 312.f;
+    constexpr float kBoardY = 154.f;
+    constexpr float kSq = 56.f;
+
     void box(sf::RenderWindow &w, float x, float y, float wd, float h,
              sf::Color fill, sf::Color outline = sf::Color::Transparent,
              float thick = 0.f)
@@ -39,19 +47,6 @@ namespace
         t.setPosition({x, y});
         w.draw(t);
     }
-
-    // simple chess piece: base, body, head
-    void piece(sf::RenderWindow &w, float x, float y, float sq,
-               sf::Color c, float h)
-    {
-        box(w, x + sq * 0.25f, y + sq - 12.f, sq * 0.5f, 6.f, c);
-        box(w, x + sq * 0.36f, y + sq - 12.f - h, sq * 0.28f, h, c);
-        sf::CircleShape head(sq * 0.12f);
-        head.setOrigin({sq * 0.12f, sq * 0.12f});
-        head.setPosition({x + sq * 0.5f, y + sq - 14.f - h});
-        head.setFillColor(c);
-        w.draw(head);
-    }
 }
 
 void GradeScene::open(const BattleStats &s, int score, char grade)
@@ -61,6 +56,7 @@ void GradeScene::open(const BattleStats &s, int score, char grade)
     grade_ = grade;
     t_ = 0.f;
     active_ = true;
+    chess_.reset();
 
     vector<AttackParams> uniq;
     for (const auto &b : stats_.builds)
@@ -86,8 +82,11 @@ void GradeScene::open(const BattleStats &s, int score, char grade)
 
 void GradeScene::update(float dt)
 {
-    if (active_)
-        t_ += dt;
+    if (!active_)
+        return;
+
+    t_ += dt;
+    chess_.update(dt);
 }
 
 size_t GradeScene::shown() const
@@ -103,9 +102,28 @@ bool GradeScene::handleEvent(const sf::Event &e)
     if (!active_ || t_ < 0.8f)
         return false;
 
+    // mouse: play chess
+    if (const auto *m = e.getIf<sf::Event::MouseButtonPressed>())
+    {
+        if (m->button == sf::Mouse::Button::Left)
+        {
+            int c = static_cast<int>(std::floor((m->position.x - kBoardX) / kSq));
+            int r = static_cast<int>(std::floor((m->position.y - kBoardY) / kSq));
+            if (r >= 0 && r < 8 && c >= 0 && c < 8)
+                chess_.click(r, c);
+        }
+        return false;
+    }
+
     const auto *k = e.getIf<sf::Event::KeyPressed>();
     if (!k)
         return false;
+
+    if (k->code == sf::Keyboard::Key::R)
+    {
+        chess_.reset();
+        return false;
+    }
 
     bool confirm = k->code == sf::Keyboard::Key::E ||
                    k->code == sf::Keyboard::Key::Enter ||
@@ -181,7 +199,6 @@ void GradeScene::draw(sf::RenderWindow &w, const sf::Font &display, const sf::Fo
             sf::Color(255, 255, 255, 10));
     // interactive exit with red button already seen in the window title bar, but also allow space/enter to exit
     txt(w, mono, "Press SPACE to continue", wx + 30.f, wy + 580.f, 14, sf::Color(20, 40, 100));
-    // ing    
     // nav buttons
     const char *nav[5] = {"<<", "<", "P", ">", ">>"};
     for (int i = 0; i < 5; i++)
@@ -193,7 +210,7 @@ void GradeScene::draw(sf::RenderWindow &w, const sf::Font &display, const sf::Fo
     }
 
     // ---- board ----
-    const float bx = wx + 12.f, by = wy + 114.f, sq = 56.f;
+    const float bx = kBoardX, by = kBoardY, sq = kSq;
     for (int r = 0; r < 8; r++)
         for (int c = 0; c < 8; c++)
         {
@@ -202,13 +219,63 @@ void GradeScene::draw(sf::RenderWindow &w, const sf::Font &display, const sf::Fo
                 dark ? sf::Color(50, 80, 200) : sf::Color(150, 232, 190));
         }
 
-    for (int c = 0; c < 8; c++)
+    // selection + legal-move hints
+    if (chess_.hasSelection())
     {
-        piece(w, bx + c * sq, by + 0 * sq, sq, sf::Color(25, 45, 120), 14.f + (c % 3) * 4.f);
-        piece(w, bx + c * sq, by + 1 * sq, sq, sf::Color(25, 45, 120), 8.f);
-        piece(w, bx + c * sq, by + 6 * sq, sq, sf::Color(250, 250, 255), 8.f);
-        piece(w, bx + c * sq, by + 7 * sq, sq, sf::Color(250, 250, 255), 14.f + (c % 3) * 4.f);
+        box(w, bx + chess_.selCol() * sq, by + chess_.selRow() * sq, sq, sq,
+            sf::Color(240, 200, 110, 140));
+
+        for (const auto &m : chess_.movesFrom(chess_.selRow(), chess_.selCol()))
+        {
+            sf::CircleShape dot(8.f);
+            dot.setOrigin({8.f, 8.f});
+            dot.setPosition({bx + m.tc * sq + sq / 2.f, by + m.tr * sq + sq / 2.f});
+            dot.setFillColor(sf::Color(240, 200, 110, 210));
+            w.draw(dot);
+        }
     }
+
+    // pieces (letters with an outline so they read on both square colours)
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++)
+        {
+            char p = chess_.at(r, c);
+            if (p == '.')
+                continue;
+
+            bool white = MiniChess::isWhite(p);
+            string ch(1, static_cast<char>(std::toupper(static_cast<unsigned char>(p))));
+
+            sf::Text t(mono, ch, 34);
+            t.setFillColor(white ? sf::Color(250, 250, 255) : sf::Color(15, 25, 70));
+            t.setOutlineColor(white ? sf::Color(20, 40, 120) : sf::Color(230, 240, 255));
+            t.setOutlineThickness(2.f);
+
+            sf::FloatRect tb = t.getLocalBounds();
+            t.setOrigin({tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f});
+            t.setPosition({bx + c * sq + sq / 2.f, by + r * sq + sq / 2.f});
+            w.draw(t);
+        }
+
+    // status line under the board
+    string status;
+    switch (chess_.winner())
+    {
+    case 1:
+        status = "CHECKMATE - YOU WIN  (R = new game)";
+        break;
+    case 2:
+        status = "CHECKMATE - SHIRO WINS  (R = new game)";
+        break;
+    case 3:
+        status = "STALEMATE - DRAW  (R = new game)";
+        break;
+    default:
+        status = chess_.playerTurn() ? (chess_.inCheck() ? "CHECK! YOUR MOVE" : "YOUR MOVE (WHITE)")
+                                     : "SHIRO IS THINKING...";
+        break;
+    }
+    txt(w, mono, status, bx, by + 8 * sq + 4.f, 12, sf::Color(20, 40, 100));
 
     // ---- yellow score sheet ----
     const float px = bx + 8 * sq + 4.f;

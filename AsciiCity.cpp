@@ -3,9 +3,94 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <fstream>
 
 using namespace std;
+bool AsciiCity::loadInterior(const Door &d)
+{
+    std::ifstream in("interiors/" + d.name + ".txt");
+    if (!in)
+        return false;
 
+    vector<string> rows;
+    string line;
+    while (getline(in, line))
+    {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        rows.push_back(line);
+    }
+
+    if (static_cast<int>(rows.size()) != ROOM_H)
+        return false;
+    for (auto &r : rows)
+        if (static_cast<int>(r.size()) != ROOM_W)
+            return false;
+
+    const sf::Color floorC(44, 56, 86), wallC(51, 67, 111);
+    sf::Color accent = NEON[static_cast<int>(rnd() * 6)];
+
+    auto put = [&](int x, int y, char c, unsigned char k, sf::Color color, bool s)
+    {
+        int i = y * W + x;
+        tile[i] = c;
+        kind[i] = k;
+        col[i] = color;
+        solidMap[i] = s ? 1 : 0;
+    };
+
+    for (int ry = 0; ry < ROOM_H; ry++)
+        for (int rx = 0; rx < ROOM_W; rx++)
+        {
+            int x = ROOM_X + rx, y = ROOM_Y + ry;
+            char c = rows[ry][rx];
+
+            switch (c)
+            {
+            case '=':
+            case '|':
+            case '-':
+                put(x, y, c, 1, (ry == 0 || ry == 3) ? accent : wallC, true);
+                break;
+            case 'o':
+                put(x, y, 'o', 1, sf::Color(180, 140, 90), true);
+                break;
+            case 'Y':
+                put(x, y, 'Y', 1, sf::Color(47, 174, 106), true);
+                break;
+            case 'D':
+                put(x, y, 'D', 4, sf::Color(255, 210, 63), false);
+                break;
+            case 'S':
+                px = x + .5f;
+                py = y + .5f;
+                put(x, y, '.', 0, floorC, false);
+                break;
+            case 'K':
+            {
+                put(x, y, '.', 0, floorC, false);
+                Npc k;
+                k.x = x;
+                k.y = y;
+                k.name = "KEEPER";
+                k.color = accent;
+                k.fixed = true;
+                k.lines = {"Welcome to " + d.name + ".", "Nothing for sale yet."};
+                npcs.push_back(k);
+                break;
+            }
+            default:
+                put(x, y, (x + y) % 2 ? ':' : '.', 0, floorC, false);
+            }
+        }
+
+    // shop name on the back wall
+    int sx = ROOM_X + ROOM_W / 2 - static_cast<int>(d.name.size()) / 2;
+    for (size_t n = 0; n < d.name.size(); n++)
+        put(sx + static_cast<int>(n), ROOM_Y, d.name[n], 3, accent, true);
+
+    return true;
+}
 AsciiCity::AsciiCity() { generate(); }
 
 void AsciiCity::enter()
@@ -606,7 +691,7 @@ void AsciiCity::draw(sf::RenderWindow &w, const sf::Font &font) const
 
     // ---------------- HUD ----------------
     if (!inside)
-        label(w, font, "NEO-KOWLOON // WEB DISTRICT", 20.f, 16.f, 16, sf::Color(255, 45, 149));
+        label(w, font, "Don't fall over the edge! CHO", 20.f, 16.f, 16, sf::Color(255, 45, 149));
 
     label(w, font,
           inside ? "W/S walk   A/D turn   E talk   ESC leave   (or walk back out the gold door)"
@@ -1143,7 +1228,8 @@ void AsciiCity::generateInterior(const Door &d)
     };
 
     seed = d.seed; // same building = same interior every visit
-
+    if (loadInterior(d))
+        return; // custom layout found, skip the random one
     // create 2.5 dimensional perspective effect (walls taller at the back) but make it look in tube with everhood ingame style
 
     // ---- filled in: the interior is now drawn in first person ----

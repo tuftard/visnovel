@@ -123,6 +123,7 @@ private:
     bool solidAt(int x, int y) const;
     bool freeTile(int x, int y) const { return !solidAt(x, y); }
     bool hit(float x, float y) const;
+    bool loadInterior(const Door &d);
     bool overlapsPlayer(int tx, int ty) const; // would an NPC on this tile touch the player?
     void clearSpawn();                         // move any NPC off the spawn point
     int nearestNpc(float range) const;

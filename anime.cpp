@@ -1,6 +1,7 @@
-//Hey dummy just ignore all this code yknow you wouldn't understand it anyway, but you could learn something if you tried.....
-// // g++ anime.cpp Common.cpp ShiroTerminal.cpp RhythmTrack.cpp soraeditor.cpp HtmlShooterScreen.cpp AsciiCity.cpp RhythmMapEditor.cpp -I"C:\SFML\include" -L"C:\SFML\lib" -lsfml-graphics -lsfml-window -lsfml-system -o anime.exe
-// git restore anime.cpp   (undo uncommitted edits)
+// I love you, but I don't know how to say it in code.
+/*g++ anime.cpp soraeditor.cpp ShiroTerminal.cpp AsciiCity.cpp HtmlShooterScreen.cpp GradeScene.cpp ResultsScreen.cpp PledgeScreen.cpp
+AimGame.cpp RhythmTrack.cpp common.cpp Rhythmmapeditor.cpp -I"C:\SFML\include" -L"C:\SFML\lib" -lsfml-graphics -lsfml-window -lsfml-system -o anime.exe*/
+//  git restore anime.cpp   (undo uncommitted edits)
 #include <iostream>
 #include <string>
 #include <vector>
@@ -814,6 +815,59 @@ void drawRetroPanel(sf::RenderWindow &w, sf::FloatRect r)
     w.draw(makeScanlines(r, 3.f, sf::Color(0, 0, 0, 70)));
     drawDashedRect(w, r, sf::Color(235, 140, 50));
 }
+// dark red dialogue box with scanlines, solid red outline and red corner brackets
+void drawSoraPanel(sf::RenderWindow &w, sf::FloatRect r)
+{
+    const sf::Color red(255, 0, 0);
+
+    sf::RectangleShape fill(r.size);
+    fill.setPosition(r.position);
+    fill.setFillColor(sf::Color(40, 0, 8, 238));
+    fill.setOutlineColor(red);
+    fill.setOutlineThickness(-2.f);
+    w.draw(fill);
+
+    w.draw(makeScanlines(r, 3.f, sf::Color(0, 0, 0, 90)));
+
+    // corner brackets
+    const float L = 22.f, T = 3.f;
+    sf::RectangleShape b;
+    b.setFillColor(red);
+    float x0 = r.position.x, y0 = r.position.y;
+    float x1 = x0 + r.size.x, y1 = y0 + r.size.y;
+
+    auto bar = [&](float x, float y, float wd, float h)
+    {
+        b.setSize({wd, h});
+        b.setPosition({x, y});
+        w.draw(b);
+    };
+
+    bar(x0, y0, L, T);
+    bar(x0, y0, T, L); // top-left
+    bar(x1 - L, y0, L, T);
+    bar(x1 - T, y0, T, L); // top-right
+    bar(x0, y1 - T, L, T);
+    bar(x0, y1 - L, T, L); // bottom-left
+    bar(x1 - L, y1 - T, L, T);
+    bar(x1 - T, y1 - L, T, L); // bottom-right
+}
+
+// dark red name plate with a red outline and a red underline
+void drawSoraNameBox(sf::RenderWindow &w, sf::Vector2f pos, sf::Vector2f size)
+{
+    sf::RectangleShape box(size);
+    box.setPosition(pos);
+    box.setFillColor(sf::Color(40, 0, 8, 245));
+    box.setOutlineColor(sf::Color(255, 0, 0));
+    box.setOutlineThickness(-2.f);
+    w.draw(box);
+
+    sf::RectangleShape line({size.x - 16.f, 2.f});
+    line.setPosition({pos.x + 8.f, pos.y + size.y - 8.f});
+    line.setFillColor(sf::Color(255, 0, 0));
+    w.draw(line);
+}
 // =============================================================
 // NO GAME NO LIFE UI STYLE
 // =============================================================
@@ -825,10 +879,67 @@ struct CharTheme
 
 namespace Themes
 {
-    inline const CharTheme sora{{16, 12, 40, 228}, {230, 55, 80}, {252, 208, 72}, {255, 255, 255}};
-    inline const CharTheme shiro{{255, 244, 250, 235}, {255, 105, 170}, {255, 255, 255}, {150, 40, 105}};
+    inline const CharTheme sora{{16, 12, 40, 228}, {230, 55, 80}, {255, 255, 255}, {255, 255, 255}};
+    inline const CharTheme shiro{{0, 0, 0, 0}, {255, 105, 170}, {255, 255, 255}, {150, 40, 105}};
     inline const CharTheme tet{{30, 10, 50, 228}, {255, 40, 120}, {70, 200, 255}, {255, 255, 255}};
+    inline const CharTheme soraRed{{40, 0, 8, 238}, {0, 0, 0}, {255, 0, 0}, {255, 255, 255}};
 }
+// =============================================================
+// SORA CODE REPORT (grades the code written in the Sora editor)
+// =============================================================
+
+struct CodeReport
+{
+    bool valid = false;
+    char rank = 'F';
+    string label = "F", comment, tip;
+    int graphics = 0, technicality = 0, logic = 0, creativity = 0;
+};
+
+inline int soraCnt(const string &s, const string &n)
+{
+    int c = 0;
+    for (size_t p = s.find(n); p != string::npos; p = s.find(n, p + n.size()))
+        c++;
+    return c;
+}
+
+inline CodeReport analyzeCode(const string &code, bool ok, int failed)
+{
+    auto cl = [](int v)
+    { return max(0, min(100, v)); };
+
+    CodeReport r;
+    r.valid = true;
+    r.graphics = cl(soraCnt(code, "sf::") * 6 + soraCnt(code, "Color") * 4 + soraCnt(code, "draw") * 5);
+    r.technicality = cl(soraCnt(code, "class ") * 12 + soraCnt(code, "struct ") * 10 +
+                        soraCnt(code, "[&]") * 8 + soraCnt(code, "vector<") * 6 + soraCnt(code, "std::") * 3);
+    r.logic = cl(soraCnt(code, "if") * 7 + soraCnt(code, "for") * 9 + soraCnt(code, "while") * 9 - failed * 5);
+    r.creativity = cl(soraCnt(code, "rand") * 10 + soraCnt(code, "sin") * 10 + soraCnt(code, "//") * 3);
+
+    if (!ok)
+    {
+        r.rank = 'F';
+        r.label = "F";
+        r.comment = "It doesn't even compile.";
+        r.tip = "Read the first error, not the last.";
+        return r;
+    }
+
+    int avg = (r.graphics + r.technicality + r.logic + r.creativity) / 4;
+    r.rank = avg >= 85 ? 'A' : avg >= 65 ? 'B'
+                           : avg >= 45   ? 'C'
+                           : avg >= 25   ? 'D'
+                                         : 'F';
+    r.label = string(1, r.rank);
+    r.comment = r.rank == 'A'   ? "Okay... that's actually good."
+                : r.rank == 'B' ? "Solid."
+                : r.rank == 'C' ? "It runs. That's all I can say."
+                                : "Bro really, I asked for a visual novel.";
+    r.tip = "Add more drawing, loops and classes.";
+    return r;
+}
+
 inline sf::Color withA(sf::Color c, int a)
 {
     c.a = static_cast<std::uint8_t>(a);
@@ -879,35 +990,7 @@ inline void drawDialogueBox(sf::RenderWindow &w, sf::FloatRect r,
     float x = r.position.x, y = r.position.y;
     float wd = r.size.x, h = r.size.y;
 
-    // soft glow
-    for (int i = 4; i >= 1; i--)
-        fillRect(w, x - i * 3.f, y - i * 3.f, wd + i * 6.f, h + i * 6.f,
-                 withA(t.edge, 12));
-
-    fillRect(w, x, y, wd, h, t.body);
-
-    // checker strip on top
-    drawChecker(w, x, y, wd, 8.f, t.edge, t.accent, time);
-
-    // side + bottom border
-    fillRect(w, x, y, 3.f, h, t.edge);
-    fillRect(w, x + wd - 3.f, y, 3.f, h, t.edge);
-    fillRect(w, x, y + h - 3.f, wd, 3.f, t.edge);
-
-    // thin inner line
-    sf::RectangleShape inner({wd - 20.f, h - 30.f});
-    inner.setPosition({x + 10.f, y + 18.f});
-    inner.setFillColor(sf::Color::Transparent);
-    inner.setOutlineColor(withA(t.accent, 90));
-    inner.setOutlineThickness(1.f);
-    w.draw(inner);
-
-    // corner diamonds
-    for (sf::Vector2f c : {sf::Vector2f(x, y), sf::Vector2f(x + wd, y),
-                           sf::Vector2f(x, y + h), sf::Vector2f(x + wd, y + h)})
-        drawDiamond(w, c, 10.f, t.accent, t.body);
-
-    // blinking "next" arrow
+    // blinking "next" arrow only
     if (fmod(time, 1.f) < 0.6f)
     {
         sf::ConvexShape arrow(3);
@@ -918,63 +1001,47 @@ inline void drawDialogueBox(sf::RenderWindow &w, sf::FloatRect r,
         w.draw(arrow);
     }
 }
-
 inline void drawNameTag(sf::RenderWindow &w, sf::Vector2f pos, sf::Vector2f size,
                         const CharTheme &t, const string &label,
                         const sf::Font &font, unsigned charSize)
 {
-    const float sk = 16.f; // slant
-
-    sf::ConvexShape tag(4);
-    tag.setPoint(0, {pos.x + sk, pos.y});
-    tag.setPoint(1, {pos.x + size.x, pos.y});
-    tag.setPoint(2, {pos.x + size.x - sk, pos.y + size.y});
-    tag.setPoint(3, {pos.x, pos.y + size.y});
-    tag.setFillColor(t.body);
-    tag.setOutlineColor(t.edge);
-    tag.setOutlineThickness(3.f);
-    w.draw(tag);
-
-    // accent underline
-    fillRect(w, pos.x + sk, pos.y + size.y + 5.f, size.x - sk * 2.f, 3.f, t.accent);
-
     sf::Text txt(font, label, charSize);
-    txt.setFillColor(t.text);
+    txt.setFillColor(t.accent);
+    txt.setOutlineColor(t.edge);
+    txt.setOutlineThickness(2.f);
 
     sf::FloatRect b = txt.getLocalBounds();
     txt.setOrigin({b.position.x + b.size.x / 2.f, b.position.y + b.size.y / 2.f});
     txt.setPosition({pos.x + size.x / 2.f, pos.y + size.y / 2.f});
     w.draw(txt);
 }
-
 inline void drawNGNLButton(sf::RenderWindow &w, sf::FloatRect r, const string &label,
                            const sf::Font &font, const CharTheme &t,
                            bool hover, float time)
 {
-    if (hover)
-        for (int i = 3; i >= 1; i--)
-            fillRect(w, r.position.x - i * 3.f, r.position.y - i * 3.f,
-                     r.size.x + i * 6.f, r.size.y + i * 6.f, withA(t.edge, 25));
-
-    fillRect(w, r.position.x, r.position.y, r.size.x, r.size.y,
-             hover ? sf::Color(40, 20, 60, 240) : t.body);
-
-    drawChecker(w, r.position.x, r.position.y, r.size.x, 5.f, t.edge, t.accent, time);
-    drawChecker(w, r.position.x, r.position.y + r.size.y - 5.f, r.size.x, 5.f,
-                t.accent, t.edge, time);
-
-    fillRect(w, r.position.x, r.position.y, 3.f, r.size.y, t.edge);
-    fillRect(w, r.position.x + r.size.x - 3.f, r.position.y, 3.f, r.size.y, t.edge);
-
     sf::Text txt(font, label, 20);
-    txt.setFillColor(hover ? t.accent : t.text);
 
+    // center the text inside the button's area
     sf::FloatRect b = txt.getLocalBounds();
     txt.setOrigin({b.position.x + b.size.x / 2.f, b.position.y + b.size.y / 2.f});
     txt.setPosition({r.position.x + r.size.x / 2.f, r.position.y + r.size.y / 2.f});
+
+    // soft glow on hover: same text with a fat, see-through outline drawn behind
+    if (hover)
+    {
+        sf::Text glow = txt;
+        glow.setFillColor(withA(t.edge, 0));
+        glow.setOutlineColor(withA(t.edge, 70));
+        glow.setOutlineThickness(7.f);
+        w.draw(glow);
+    }
+
+    // the actual text: white fill, pink outline (colors swap on hover)
+    txt.setFillColor(hover ? t.edge : t.accent);
+    txt.setOutlineColor(hover ? t.accent : t.edge);
+    txt.setOutlineThickness(2.f);
     w.draw(txt);
 }
-
 // =============================================================
 // MAIN
 // =============================================================
@@ -1132,6 +1199,8 @@ int main()
 
     bool soraPassed = false; // set once Sora's code builds clean
     char soraRank = 'F';
+    CodeReport soraReport;
+    int soraFailedBuilds = 0; // counted here since SoraEditor has no failedBuilds()
 
     // =========================================================
     // OVERWORLD / RPG STATE
@@ -1544,16 +1613,15 @@ int main()
 
     soraNameBox.setSize({160.f, 38.f});
     soraNameBox.setPosition({45.f, 405.f});
-    soraNameBox.setFillColor(sf::Color(10, 10, 25, 240));
-    soraNameBox.setOutlineColor(sf::Color(255, 255, 255, 180));
+    soraNameBox.setFillColor(sf::Color(40, 0, 8, 240));
+    soraNameBox.setOutlineColor(sf::Color(255, 0, 0));
     soraNameBox.setOutlineThickness(2.f);
 
     sf::Text soraDialogueName(sorafont);
 
-    soraDialogueName.setString("SORA");
+    soraDialogueName.setString("SOA");
     soraDialogueName.setPosition({75.f, 402.f});
     soraDialogueName.setCharacterSize(25);
-    soraDialogueName.setFillColor(sf::Color::White);
 
     // =========================================================
     // DIALOGUE BUBBLE
@@ -1592,10 +1660,10 @@ int main()
 
     sf::RectangleShape soraSelectNameBox;
 
-    soraSelectNameBox.setSize({90.f, 45.f});
+    soraSelectNameBox.setSize({190.f, 145.f});
     soraSelectNameBox.setPosition({75.f, 485.f});
-    soraSelectNameBox.setFillColor(sf::Color(10, 10, 25, 230));
-    soraSelectNameBox.setOutlineColor(sf::Color(255, 255, 255, 180));
+    soraSelectNameBox.setFillColor(sf::Color(40, 0, 8, 230));
+    soraSelectNameBox.setOutlineColor(sf::Color(255, 0, 0));
     soraSelectNameBox.setOutlineThickness(2.f);
 
     sf::Text soraSelectName(sorafont);
@@ -1603,8 +1671,9 @@ int main()
     soraSelectName.setString("SORA");
     soraSelectName.setCharacterSize(25);
     soraSelectName.setPosition({585.f, 492.f});
-    soraSelectName.setFillColor(sf::Color::White);
-
+    soraSelectName.setFillColor(sf::Color::Red);
+    soraSelectName.setOutlineColor(sf::Color::Black);
+    soraSelectName.setOutlineThickness(2.f);
     // =========================================================
     // DIALOGUE NAME
     // =========================================================
@@ -1635,15 +1704,29 @@ int main()
     dialogueText.setString("sup");
     dialogueText.setCharacterSize(28);
     dialogueText.setPosition({45.f, 450.f});
-    dialogueText.setFillColor(sf::Color::White);
 
     sf::Text dialogueTextS1(sorafont);
 
     dialogueTextS1.setString("What's up, wanna code... first tell me how you coded this without error");
-    dialogueTextS1.setCharacterSize(22);
+    dialogueTextS1.setCharacterSize(28); // was 40: grader messages are long and overflowed the box
     dialogueTextS1.setPosition({45.f, 455.f});
-    dialogueTextS1.setFillColor(sf::Color(255, 255, 255));
+    dialogueTextS1.setFillColor(sf::Color::Red);
+    dialogueTextS1.setOutlineColor(sf::Color::Black);
+    dialogueTextS1.setOutlineThickness(2.f);
 
+    sf::Text soraScores(editorFont);
+    soraScores.setCharacterSize(16);
+    soraScores.setPosition({70.f, 545.f});
+    soraScores.setFillColor(sf::Color::Red);
+    soraScores.setOutlineColor(sf::Color::Black);
+    soraScores.setOutlineThickness(2.f);
+
+    sf::Text soraTip(editorFont);
+    soraTip.setCharacterSize(14);
+    soraTip.setPosition({70.f, 585.f});
+    soraTip.setFillColor(sf::Color::White); // white as the third colour
+    soraTip.setOutlineColor(sf::Color::Black);
+    soraTip.setOutlineThickness(2.f);
     // =========================================================
     // EDITOR BUTTON (opens the SoraEditor)
     // =========================================================
@@ -2041,7 +2124,12 @@ int main()
         // =========================================================
         if (soraEditor.takeBuildEvent())
         {
-            soraRank = soraEditor.lastBuildOk() ? gradeCode(soraEditor.code()) : 'F';
+            if (!soraEditor.lastBuildOk())
+                soraFailedBuilds++;
+
+            soraReport = analyzeCode(soraEditor.code(), soraEditor.lastBuildOk(),
+                                     soraFailedBuilds);
+            soraRank = soraReport.rank;
             soraPassed = (soraRank != 'F');
             applyGradeToStamps(soraRank);
         }
@@ -2679,7 +2767,7 @@ int main()
 
                     soraMouseBox.setPosition({920.f, 200.f});
 
-                    soraSelectNameBox.setSize({90.f, 45.f});
+                    soraSelectNameBox.setSize({190.f, 145.f});
 
                     soraSelectNameBox.setPosition({900.f, 480.f});
 
@@ -2692,8 +2780,6 @@ int main()
                     window.draw(shiroSelectNameBox);
 
                     window.draw(shiroSelectName);
-
-                    window.draw(soraSelectNameBox);
 
                     window.draw(soraSelectName);
                 }
@@ -2743,9 +2829,10 @@ int main()
 
                     window.draw(sora);
 
-                    drawRetroPanel(window, textBubble.getGlobalBounds());
-                    drawDialogueBox(window, textBubble.getGlobalBounds(), Themes::sora, ui);
-                    drawNameTag(window, {50.f, 392.f}, {210.f, 44.f}, Themes::sora,
+                    drawSoraPanel(window, textBubble.getGlobalBounds());
+                    drawDialogueBox(window, textBubble.getGlobalBounds(), Themes::soraRed, ui);
+                    drawSoraNameBox(window, {50.f, 392.f}, {210.f, 44.f});
+                    drawNameTag(window, {50.f, 392.f}, {210.f, 44.f}, Themes::soraRed,
                                 "SORA", sorafont, 24);
                 }
 
@@ -2771,19 +2858,26 @@ int main()
 
                     window.draw(sora);
 
-                    drawRetroPanel(window, textBubble.getGlobalBounds());
-
-                    window.draw(soraNameBox);
-
-                    window.draw(soraDialogueName);
-                    if (soraRank == 'F' && soraEditor.lastOutput() != "")
-                        dialogueTextS1.setString("F. No intro, character select, and lines? Try again.");
-                    if (soraPassed)
-                        dialogueTextS1.setString(string(1, soraRank) + ". Didn't know you were so technical.");
-                    else if (soraRank == 'F' && soraEditor.lastOutput() != "")
-                        dialogueTextS1.setString("F. No intro??? characters??? and not to mention the lines??? Try again bud.");
+                    drawSoraPanel(window, textBubble.getGlobalBounds());
+                    drawDialogueBox(window, textBubble.getGlobalBounds(), Themes::soraRed, ui);
+                    drawSoraNameBox(window, {50.f, 392.f}, {210.f, 44.f});
+                    drawNameTag(window, {50.f, 392.f}, {210.f, 44.f}, Themes::soraRed,
+                                "SORA", sorafont, 24);
+                    if (soraReport.valid)
+                    {
+                        dialogueTextS1.setString(soraReport.label + ". " + soraReport.comment);
+                        soraScores.setString("GFX " + to_string(soraReport.graphics) +
+                                             "   TECH " + to_string(soraReport.technicality) +
+                                             "   LOGIC " + to_string(soraReport.logic) +
+                                             "   CREA " + to_string(soraReport.creativity));
+                        soraTip.setString(soraReport.tip.empty() ? string("") : "Next: " + soraReport.tip);
+                    }
                     window.draw(dialogueTextS1);
-                    window.draw(dialogueTextS1);
+                    if (soraReport.valid)
+                    {
+                        window.draw(soraScores);
+                        window.draw(soraTip);
+                    }
                 }
 
                 // =================================================
@@ -2798,7 +2892,7 @@ int main()
                         sf::Vector2f(sf::Mouse::getPosition(window)));
 
                     drawNGNLButton(window, editorButton.getGlobalBounds(),
-                                   "Cmon I'm not Joking", font, Themes::sora, hov, ui);
+                                   "Cmon I'm not Joking", font, Themes::soraRed, hov, ui);
                 }
 
                 // =================================================
@@ -2806,12 +2900,11 @@ int main()
                 // =================================================
 
                 soraEditor.draw(window);
-                
             }
         }
 
         window.draw(crt);
-        
+
         drawStamps(window, editorFont);
         window.display();
         continue;
