@@ -47,6 +47,173 @@ namespace
         t.setPosition({x, y});
         w.draw(t);
     }
+
+    using Poly = vector<sf::Vector2f>;
+
+    // axis-aligned rectangle as a polygon (coords in a 56x56 cell)
+    Poly rectP(float x0, float y0, float x1, float y1)
+    {
+        return {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+    }
+
+    // circle / ellipse as a polygon
+    Poly ngon(float cx, float cy, float rx, float ry, int n = 18)
+    {
+        Poly p;
+        for (int i = 0; i < n; i++)
+        {
+            float a = 6.2831853f * static_cast<float>(i) / static_cast<float>(n);
+            p.push_back({cx + rx * std::cos(a), cy + ry * std::sin(a)});
+        }
+        return p;
+    }
+
+    // Chess piece built from convex polygons, drawn in a 56x56 design cell
+    // scaled to the square. type is the lowercase piece letter.
+    void drawPiece(sf::RenderWindow &w, float x, float y, float sq, char type,
+                   sf::Color fill, sf::Color line)
+    {
+        const float u = sq / 56.f;
+        vector<Poly> parts; // filled body shapes
+        vector<Poly> marks; // small details in the outline colour
+        vector<Poly> hl;    // soft highlights (light from upper left)
+
+        // shared foot: plinth + step
+        parts.push_back(rectP(12, 45, 44, 50));
+        parts.push_back(rectP(16, 41, 40, 45));
+
+        switch (type)
+        {
+        case 'p':
+            parts.push_back({{20, 41}, {36, 41}, {31, 29}, {25, 29}});
+            parts.push_back(rectP(21, 26, 35, 30));
+            parts.push_back(ngon(28, 19, 7.f, 7.f));
+            hl.push_back(ngon(25.5f, 16.5f, 2.2f, 3.f, 8));
+            hl.push_back({{22, 40}, {24, 40}, {26.5f, 31}, {25.5f, 31}});
+            break;
+
+        case 'r':
+            parts.push_back({{19, 41}, {37, 41}, {34, 19}, {22, 19}});
+            parts.push_back(rectP(16, 14, 40, 20));
+            parts.push_back(rectP(16, 7, 23, 14));
+            parts.push_back(rectP(24.5f, 7, 31.5f, 14));
+            parts.push_back(rectP(33, 7, 40, 14));
+            hl.push_back({{21, 40}, {23.5f, 40}, {25, 21}, {23.5f, 21}});
+            break;
+
+        case 'n':
+            // neck + chest
+            parts.push_back({{17, 41}, {40, 41}, {37, 16}, {30, 12}, {24, 24}});
+            // head and muzzle
+            parts.push_back({{31, 9}, {26, 11}, {13, 24}, {15, 29}, {24, 27}, {34, 22}});
+            // ear
+            parts.push_back({{28, 11}, {31, 3}, {34, 11}});
+            // eye and nostril
+            marks.push_back(ngon(25, 17, 1.6f, 1.6f, 8));
+            marks.push_back(ngon(15, 25, 1.2f, 1.2f, 8));
+            hl.push_back({{20, 40}, {23, 40}, {28, 22}, {26, 22}});
+            break;
+
+        case 'b':
+            parts.push_back({{20, 41}, {36, 41}, {31, 27}, {25, 27}});
+            parts.push_back(rectP(20, 24, 36, 28));
+            parts.push_back(ngon(28, 16, 7.f, 9.5f));
+            parts.push_back(ngon(28, 5.5f, 2.6f, 2.6f, 10));
+            // mitre slit
+            marks.push_back({{26, 17}, {28, 14}, {32, 11}, {33, 13}, {29, 17}, {27, 19}});
+            hl.push_back(ngon(24.5f, 12.5f, 1.8f, 3.8f, 8));
+            hl.push_back({{22, 40}, {24, 40}, {26.5f, 30}, {25.5f, 30}});
+            break;
+
+        case 'q':
+        case 'k':
+            parts.push_back({{18, 41}, {38, 41}, {33, 23}, {23, 23}});
+            parts.push_back(rectP(19, 20, 37, 25));
+            if (type == 'q')
+            {
+                const float xs[5] = {19.f, 23.5f, 28.f, 32.5f, 37.f};
+                parts.push_back(rectP(18, 15, 38, 21));
+                for (float sx : xs)
+                {
+                    parts.push_back({{sx - 3.5f, 16}, {sx + 3.5f, 16}, {sx, 8}});
+                    parts.push_back(ngon(sx, 6.5f, 2.3f, 2.3f, 10));
+                }
+            }
+            else
+            {
+                parts.push_back({{19, 21}, {37, 21}, {35, 12}, {21, 12}});
+                parts.push_back(rectP(26.5f, 2, 29.5f, 13)); // cross, upright
+                parts.push_back(rectP(23, 5, 33, 8));        // cross, arm
+            }
+            hl.push_back({{21, 40}, {23.5f, 40}, {25.5f, 24}, {24, 24}});
+            break;
+        }
+
+        auto emit = [&](const Poly &p, sf::Color f, float thick, sf::Color o)
+        {
+            sf::ConvexShape s(p.size());
+            for (size_t i = 0; i < p.size(); i++)
+                s.setPoint(i, sf::Vector2f(x + p[i].x * u, y + p[i].y * u));
+            s.setFillColor(f);
+            if (thick > 0.f)
+            {
+                s.setOutlineColor(o);
+                s.setOutlineThickness(thick);
+            }
+            w.draw(s);
+        };
+
+        auto shade = [](sf::Color c, float f)
+        {
+            auto ch = [&](uint8_t v)
+            { return static_cast<uint8_t>(std::clamp(v * f, 0.f, 255.f)); };
+            return sf::Color(ch(c.r), ch(c.g), ch(c.b), c.a);
+        };
+
+        // cylinder-style shading: light from the upper left, dark on the right
+        auto emitShaded = [&](const Poly &p)
+        {
+            float cx = 0.f, cy = 0.f;
+            for (const auto &q : p)
+            {
+                cx += q.x;
+                cy += q.y;
+            }
+            cx /= static_cast<float>(p.size());
+            cy /= static_cast<float>(p.size());
+
+            auto colAt = [&](float px, float py)
+            {
+                float t = std::clamp((px - 12.f) / 32.f, 0.f, 1.f);
+                float f = 1.22f - 0.62f * t - 0.12f * std::clamp((py - 4.f) / 46.f, 0.f, 1.f);
+                return shade(fill, f);
+            };
+
+            sf::VertexArray va(sf::PrimitiveType::TriangleFan, p.size() + 2);
+            va[0].position = sf::Vector2f(x + cx * u, y + cy * u);
+            va[0].color = colAt(cx, cy);
+            for (size_t i = 0; i <= p.size(); i++)
+            {
+                const auto &q = p[i % p.size()];
+                va[i + 1].position = sf::Vector2f(x + q.x * u, y + q.y * u);
+                va[i + 1].color = colAt(q.x, q.y);
+            }
+            w.draw(va);
+        };
+
+        // soft drop shadow on the square
+        emit(ngon(31, 49.5f, 19.f, 3.6f, 20), sf::Color(0, 0, 40, 90), 0.f, line);
+
+        // pass 1: outlined, pass 2: shaded fill (hides seams between parts)
+        for (const Poly &p : parts)
+            emit(p, line, 1.6f, line);
+        for (const Poly &p : parts)
+            emitShaded(p);
+        for (const Poly &p : marks)
+            emit(p, line, 0.f, line);
+        for (const Poly &p : hl)
+            emit(p, sf::Color(255, 255, 255, 120), 0.f, line);
+    }
 }
 
 void GradeScene::open(const BattleStats &s, int score, char grade)
@@ -229,13 +396,14 @@ void GradeScene::draw(sf::RenderWindow &w, const sf::Font &display, const sf::Fo
         {
             sf::CircleShape dot(8.f);
             dot.setOrigin({8.f, 8.f});
-            dot.setPosition({bx + m.tc * sq + sq / 2.f, by + m.tr * sq + sq / 2.f});
+            dot.setPosition(sf::Vector2f(bx + static_cast<float>(m.tc) * sq + sq / 2.f,
+                                         by + static_cast<float>(m.tr) * sq + sq / 2.f));
             dot.setFillColor(sf::Color(240, 200, 110, 210));
             w.draw(dot);
         }
     }
 
-    // pieces (letters with an outline so they read on both square colours)
+    // pieces
     for (int r = 0; r < 8; r++)
         for (int c = 0; c < 8; c++)
         {
@@ -244,17 +412,11 @@ void GradeScene::draw(sf::RenderWindow &w, const sf::Font &display, const sf::Fo
                 continue;
 
             bool white = MiniChess::isWhite(p);
-            string ch(1, static_cast<char>(std::toupper(static_cast<unsigned char>(p))));
+            sf::Color fill = white ? sf::Color(250, 250, 255) : sf::Color(25, 45, 120);
+            sf::Color line = white ? sf::Color(20, 40, 120) : sf::Color(225, 238, 255);
 
-            sf::Text t(mono, ch, 34);
-            t.setFillColor(white ? sf::Color(250, 250, 255) : sf::Color(15, 25, 70));
-            t.setOutlineColor(white ? sf::Color(20, 40, 120) : sf::Color(230, 240, 255));
-            t.setOutlineThickness(2.f);
-
-            sf::FloatRect tb = t.getLocalBounds();
-            t.setOrigin({tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f});
-            t.setPosition({bx + c * sq + sq / 2.f, by + r * sq + sq / 2.f});
-            w.draw(t);
+            drawPiece(w, bx + static_cast<float>(c) * sq, by + static_cast<float>(r) * sq, sq,
+                      static_cast<char>(std::tolower(static_cast<unsigned char>(p))), fill, line);
         }
 
     // status line under the board
