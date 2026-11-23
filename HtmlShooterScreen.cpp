@@ -30,6 +30,7 @@ void HtmlShooterScreen::open(const sf::Font &mono)
 
     playerPos = {fx + fw / 2.f, fy + fh - 60.f};
     playerHP = 100;
+    
     bossHP = bossMax;
     invuln = 0.f;
     hurt = 0.f;

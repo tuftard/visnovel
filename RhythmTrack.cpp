@@ -334,9 +334,8 @@ void RhythmTrack::drawTrack()
     {
         float l0 = -1.f + 0.5f * lane;
         float l1 = l0 + 0.5f;
-
-        sf::Color nearCol = mix(laneDark[lane], laneMid[lane], 0.55f);
-        sf::Color farCol = col(laneDark[lane], 90.f);
+        sf::Color nearCol = col(mix(laneDark[lane], laneMid[lane], 0.35f), 150.f);
+        sf::Color farCol = col(laneDark[lane], 25.f);
 
         quad(pS(l0, sNear), pS(l1, sNear), pS(l1, sFar), pS(l0, sFar),
              nearCol, nearCol, farCol, farCol);

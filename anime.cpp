@@ -19,6 +19,7 @@ AimGame.cpp RhythmTrack.cpp common.cpp Rhythmmapeditor.cpp -I"C:\SFML\include" -
 #include <cstdint>
 #include <memory>
 #include <filesystem>
+#include "RetroUI.h"
 #include "Common.h"
 #include "Minigame.h"
 #include "AimGame.h"
@@ -1048,6 +1049,28 @@ inline void drawNGNLButton(sf::RenderWindow &w, sf::FloatRect r, const string &l
 
 int main()
 {
+
+    //=========================================================
+    // GAME SHORCUTS VARIABLES
+    //=========================================================
+    bool asciiCityS = false;
+
+    bool overworldS = false;
+
+    bool shiroBattleS = false;
+
+    bool soraEditorS = false;
+
+    bool htmlShooterS = false;
+
+    bool resultsS = false;
+
+    bool shiroTerminalS = false;
+
+    bool gradingS = false;
+
+    bool aimGameS = false;
+
     // =========================================================
     // GAME VARIABLES
     // =========================================================
@@ -1149,7 +1172,7 @@ int main()
     sf::Clock uiClock;
 
     // =========================================================
-    // BACKGROUND
+    // BACKGROUND (old image, no longer drawn: the retro backdrop replaces it)
     // =========================================================
 
     sf::Texture backgroundTexture;
@@ -1639,41 +1662,41 @@ int main()
     // SHIRO SELECT NAME
     // =========================================================
 
-    sf::RectangleShape shiroSelectNameBox;
+    sf::RectangleShape shiroVNameBox;
 
-    shiroSelectNameBox.setSize({90.f, 45.f});
-    shiroSelectNameBox.setPosition({75.f, 485.f});
-    shiroSelectNameBox.setFillColor(sf::Color(10, 10, 25, 230));
-    shiroSelectNameBox.setOutlineColor(sf::Color(255, 255, 255, 180));
-    shiroSelectNameBox.setOutlineThickness(2.f);
+    shiroVNameBox.setSize({90.f, 45.f});
+    shiroVNameBox.setPosition({75.f, 485.f});
+    shiroVNameBox.setFillColor(sf::Color(10, 10, 25, 230));
+    shiroVNameBox.setOutlineColor(sf::Color(255, 255, 255, 180));
+    shiroVNameBox.setOutlineThickness(2.f);
 
-    sf::Text shiroSelectName(shirofont);
+    sf::Text shiroVName(shirofont);
 
-    shiroSelectName.setString("SHIRO");
-    shiroSelectName.setCharacterSize(25);
-    shiroSelectName.setPosition({95.f, 492.f});
-    shiroSelectName.setFillColor(sf::Color::White);
+    shiroVName.setString("SHIRO");
+    shiroVName.setCharacterSize(25);
+    shiroVName.setPosition({95.f, 492.f});
+    shiroVName.setFillColor(sf::Color::White);
 
     // =========================================================
     // SORA SELECT NAME
     // =========================================================
 
-    sf::RectangleShape soraSelectNameBox;
+    sf::RectangleShape soraVNameBox;
 
-    soraSelectNameBox.setSize({190.f, 145.f});
-    soraSelectNameBox.setPosition({75.f, 485.f});
-    soraSelectNameBox.setFillColor(sf::Color(40, 0, 8, 230));
-    soraSelectNameBox.setOutlineColor(sf::Color(255, 0, 0));
-    soraSelectNameBox.setOutlineThickness(2.f);
+    soraVNameBox.setSize({190.f, 145.f});
+    soraVNameBox.setPosition({75.f, 485.f});
+    soraVNameBox.setFillColor(sf::Color(40, 0, 8, 230));
+    soraVNameBox.setOutlineColor(sf::Color(255, 0, 0));
+    soraVNameBox.setOutlineThickness(2.f);
 
-    sf::Text soraSelectName(sorafont);
+    sf::Text soraVName(sorafont);
 
-    soraSelectName.setString("SORA");
-    soraSelectName.setCharacterSize(25);
-    soraSelectName.setPosition({585.f, 492.f});
-    soraSelectName.setFillColor(sf::Color::Red);
-    soraSelectName.setOutlineColor(sf::Color::Black);
-    soraSelectName.setOutlineThickness(2.f);
+    soraVName.setString("SORA");
+    soraVName.setCharacterSize(25);
+    soraVName.setPosition({585.f, 492.f});
+    soraVName.setFillColor(sf::Color::Red);
+    soraVName.setOutlineColor(sf::Color::Black);
+    soraVName.setOutlineThickness(2.f);
     // =========================================================
     // DIALOGUE NAME
     // =========================================================
@@ -1744,6 +1767,22 @@ int main()
     editorButtonText.setPosition({375.f, 287.f});
 
     // =========================================================
+    // RETRO WINDOW (title, character select and dialogue live inside it)
+    // =========================================================
+
+    const sf::FloatRect winFrame({152.f, 40.f}, {976.f, 584.f});
+    const RetroUI::Layout winLayout = RetroUI::layoutFor(winFrame);
+    RetroUI::AppWindow win;
+    win.open();
+    sf::View sceneView;
+    bool quitting = false;
+    bool startPending = false;
+
+    // overworld + battle stay fullscreen
+    auto isWindowed = [&]
+    { return !overworldActive && !shiroBattle; };
+
+    // =========================================================
     // MAIN LOOP
     // =========================================================
     std::unique_ptr<Minigame> activeGame;
@@ -1751,6 +1790,7 @@ int main()
     // dark lines; for orange lines use sf::Color(255, 140, 40, 22)
     sf::VertexArray crt = makeScanlines({{0.f, 0.f}, {1280.f, 720.f}},
                                         3.f, sf::Color(0, 0, 0, 45));
+
     while (window.isOpen())
     {
         // =====================================================
@@ -1758,6 +1798,25 @@ int main()
         // =====================================================
 
         float dt = rhythmClock.restart().asSeconds();
+
+        // retro window: pop animation + what happens when it finishes closing
+        sceneView = win.sceneView(winLayout.content, winFrame);
+        win.update(dt);
+
+        if (win.takeClosed())
+        {
+            if (quitting)
+            {
+                window.close();
+            }
+            else if (startPending)
+            {
+                startPending = false;
+                gameStarted = true;
+                win.open();
+            }
+        }
+
         terminal.update(
             dt,
             sf::Vector2f(sf::Mouse::getPosition(window)),
@@ -1844,6 +1903,96 @@ int main()
                 }
             }
 
+            //=========================================================
+            // Shortcuts for testing (Ctrl + number)
+            // (the old nested pollEvent loop was removed: it swallowed
+            //  every event after the first one, including mouse clicks)
+            //=========================================================
+
+            if (const auto *keyEvent = event->getIf<sf::Event::KeyPressed>())
+            {
+                if (keyEvent->control)
+                {
+                    using k = sf::Keyboard::Key;
+                    switch (keyEvent->code)
+                    {
+                    case k::Num1:
+                        asciiCityS = true;
+                        break;
+                    case k::Num2:
+                        overworldS = true;
+                        break;
+                    case k::Num3:
+                        shiroBattleS = true;
+                        break;
+                    case k::Num4:
+                        soraEditorS = true;
+                        break;
+                    case k::Num5:
+                        htmlShooterS = true;
+                        break;
+                    case k::Num6:
+                        resultsS = true;
+                        break;
+                    case k::Num7:
+                        shiroTerminalS = true;
+                        break;
+                    case k::Num8:
+                        gradingS = true;
+                        break;
+                    case k::Num9:
+                        aimGameS = true;
+                        break;
+                    default:
+                        break;
+                    }
+                }
+            }
+
+            auto closeAll = [&]()
+            {
+                activeGame.reset(); // closes AimGame / any active game
+                cityActive = false;
+                // call whatever "close" your screens have, e.g.:
+                // htmlShooter.close(); grading.close(); results.close();
+            };
+
+            // Ctrl+number shortcuts: skip the title/select and jump straight to a screen
+            auto jumpToGame = [&]()
+            {
+                gameStarted = true;
+                overworldActive = true; // fullscreen scenes are drawn in this branch
+                closeAll();
+            };
+
+            if (aimGameS) // Ctrl+9
+            {
+                aimGameS = false;
+                jumpToGame();
+                activeGame = std::make_unique<AimGame>(nullptr); // nullptr = built-in pattern
+            }
+            if (asciiCityS) // Ctrl+1
+            {
+                asciiCityS = false;
+                jumpToGame();
+                cityActive = true;
+                city.enter();
+            }
+            if (htmlShooterS) // Ctrl+5
+            {
+                htmlShooterS = false;
+                jumpToGame();
+                htmlShooter.open(editorFont);
+            }
+            if (gradingS) // Ctrl+8
+            {
+                gradingS = false;
+                jumpToGame();
+                grading.open(stats, score, scoreLetter(score));
+            }
+            // overworldS, shiroBattleS, soraEditorS, resultsS, shiroTerminalS:
+            // same pattern: reset flag, closeAll(), then call that screen's open/start.
+
             // =================================================
             // PLEDGE SCREEN + OVERWORLD INPUT
             // =================================================
@@ -1916,11 +2065,32 @@ int main()
             {
                 if (mouseBtn->button == sf::Mouse::Button::Left)
                 {
-                    auto mouse = sf::Mouse::getPosition(window);
+                    // ---- retro window: close button, clicks on the desktop, scene mapping ----
+                    const sf::Vector2f rawPos(mouseBtn->position);
 
-                    float mouseX = static_cast<float>(mouse.x);
+                    if (isWindowed())
+                    {
+                        if (!win.interactive())
+                            continue; // mid pop animation
 
-                    float mouseY = static_cast<float>(mouse.y);
+                        if (winLayout.closeBtn.contains(rawPos))
+                        {
+                            quitting = true;
+                            win.close();
+                            continue;
+                        }
+
+                        if (!winLayout.content.contains(rawPos))
+                            continue; // clicked the desktop or the frame
+                    }
+
+                    // scene coordinates (1280x720) when inside the window
+                    sf::Vector2f mp = isWindowed()
+                                          ? window.mapPixelToCoords(mouseBtn->position, sceneView)
+                                          : rawPos;
+
+                    float mouseX = mp.x;
+                    float mouseY = mp.y;
 
                     // =================================================
                     // EDITOR BUTTON
@@ -1954,7 +2124,8 @@ int main()
                         }
                         else if (playButton.getGlobalBounds().contains({mouseX, mouseY}))
                         {
-                            gameStarted = true;
+                            startPending = true; // menu window shrinks, then the game window opens
+                            win.close();
                         }
                         else if (optionsButton.getGlobalBounds().contains({mouseX, mouseY}))
                         {
@@ -2112,6 +2283,7 @@ int main()
             else
             {
                 window.clear();
+                window.setView(window.getDefaultView());
                 mapEditor->draw(window, editorFont);
                 drawStamps(window, editorFont);
                 window.display();
@@ -2424,36 +2596,47 @@ int main()
 
         window.clear();
         float ui = uiClock.getElapsedTime().asSeconds();
+
+        // retro desktop + window frame (title, character select and dialogue are
+        // drawn through sceneView so they are clipped inside the window)
+        window.setView(window.getDefaultView());
+
+        if (isWindowed())
+        {
+            RetroUI::desktop(window, editorFont,
+                             gameStarted ? "anime.exe" : "menu.exe", ui);
+            win.drawChrome(window, editorFont, "The Only Way Academy",
+                           winFrame, winLayout, ui);
+            window.setView(sceneView);
+        }
+
         // =========================================================
         // TITLE
         // =========================================================
 
         if (!gameStarted)
         {
-            window.draw(background);
-
+            RetroUI::sceneBackdrop(window, ui);
+            RetroUI::bevel(window, {{340.f, 85.f}, {600.f, 95.f}}, RetroUI::TitleTop, true);
             window.draw(title);
-            sf::Vector2f mp(sf::Mouse::getPosition(window));
+
+            sf::Vector2f mp = window.mapPixelToCoords(sf::Mouse::getPosition(window), sceneView);
 
             if (optionsOpen)
             {
-                drawNGNLButton(window, mapEditorButton.getGlobalBounds(),
-                               "RHYTHM MAP EDITOR", font, Themes::sora,
-                               mapEditorButton.getGlobalBounds().contains(mp), ui);
+                RetroUI::button(window, mapEditorButton.getGlobalBounds(), "RHYTHM MAP EDITOR",
+                                font, mapEditorButton.getGlobalBounds().contains(mp));
 
-                drawNGNLButton(window, backButton.getGlobalBounds(),
-                               "BACK", font, Themes::sora,
-                               backButton.getGlobalBounds().contains(mp), ui);
+                RetroUI::button(window, backButton.getGlobalBounds(), "BACK",
+                                font, backButton.getGlobalBounds().contains(mp));
             }
             else
             {
-                drawNGNLButton(window, playButton.getGlobalBounds(),
-                               "PLAY GAME", font, Themes::shiro,
-                               playButton.getGlobalBounds().contains(mp), ui);
+                RetroUI::button(window, playButton.getGlobalBounds(), "PLAY GAME",
+                                font, playButton.getGlobalBounds().contains(mp));
 
-                drawNGNLButton(window, optionsButton.getGlobalBounds(),
-                               "OPTIONS", font, Themes::shiro,
-                               optionsButton.getGlobalBounds().contains(mp), ui);
+                RetroUI::button(window, optionsButton.getGlobalBounds(), "OPTIONS",
+                                font, optionsButton.getGlobalBounds().contains(mp));
             }
         }
 
@@ -2741,12 +2924,12 @@ int main()
             }
 
             // =====================================================
-            // NORMAL GAME
+            // NORMAL GAME (character select + dialogue, inside the window)
             // =====================================================
 
             else
             {
-                window.draw(background);
+                RetroUI::sceneBackdrop(window, ui);
 
                 // =================================================
                 // CHARACTER SELECT
@@ -2767,21 +2950,21 @@ int main()
 
                     soraMouseBox.setPosition({920.f, 200.f});
 
-                    soraSelectNameBox.setSize({190.f, 145.f});
+                    soraVNameBox.setSize({190.f, 145.f});
 
-                    soraSelectNameBox.setPosition({900.f, 480.f});
+                    soraVName.setPosition({900.f, 480.f});
 
-                    soraSelectName.setPosition({925.f, 485.f});
+                    soraVName.setPosition({925.f, 485.f});
 
                     window.draw(shiro);
 
                     window.draw(sora);
 
-                    window.draw(shiroSelectNameBox);
+                    window.draw(shiroVName);
 
-                    window.draw(shiroSelectName);
+                    window.draw(shiroVName);
 
-                    window.draw(soraSelectName);
+                    window.draw(soraVName);
                 }
 
                 // =================================================
@@ -2821,7 +3004,7 @@ int main()
 
                     sora.setPosition({580.f, 450.f});
 
-                    soraNameBox.setPosition({45.f, 405.f});
+                    soraVNameBox.setPosition({45.f, 405.f});
 
                     soraNameBox.setScale({0.75f, 0.55f});
 
@@ -2847,7 +3030,7 @@ int main()
 
                     sora.setPosition({580.f, 450.f});
 
-                    soraNameBox.setPosition({45.f, 405.f});
+                    soraVNameBox.setPosition({45.f, 405.f});
 
                     soraNameBox.setScale({0.75f, 0.55f});
 
@@ -2889,19 +3072,20 @@ int main()
                     !soraEditor.isOpen())
                 {
                     bool hov = editorButton.getGlobalBounds().contains(
-                        sf::Vector2f(sf::Mouse::getPosition(window)));
+                        window.mapPixelToCoords(sf::Mouse::getPosition(window), sceneView));
 
                     drawNGNLButton(window, editorButton.getGlobalBounds(),
-                                   "Cmon I'm not Joking", font, Themes::soraRed, hov, ui);
+                                   "I'm not Joking", font, Themes::soraRed, hov, ui);
                 }
 
-                // =================================================
-                // CODE EDITOR
-                // =================================================
-
-                soraEditor.draw(window);
+                // the code editor is drawn after the window view is reset (see below)
             }
         }
+
+        // back to full-screen coordinates for the editor, CRT lines and stamps
+        window.setView(window.getDefaultView());
+
+        soraEditor.draw(window);
 
         window.draw(crt);
 

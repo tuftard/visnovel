@@ -1117,9 +1117,9 @@ void AsciiCity::generate()
     izuna.color = sf::Color(255, 200, 90);
     izuna.fixed = true;
     izuna.shooter = true;
-    izuna.lines = {"Welcome to the Web District.",
-                   "Everything here is built out of tags.",
-                   "Ready? Let's shoot some pages."};
+    izuna.lines = {"Hey another one of you transporters! I was hoping you'd show up.",
+                   "I know you lil pussies are all about that rhythm game life, so I made a little challenge for you.",
+                   "Your a otaku, right? Then you'll love this tohou ripoff I made. Beat me and I'll give you a special prize. Maybe even women will like you.",};
     npcs.push_back(izuna);
 
     Npc oldman;
@@ -1132,8 +1132,8 @@ void AsciiCity::generate()
     oldman.mapName = "aim_oldman"; // maps/aim_oldman.txt (grid map)
     oldman.lines = {"Hungry... Traveler",
                     "The ramen place on the west side never closes.",
-                    "Tell them I sent you and get some andsign soup",
-                    "...You've got quick hands. Think you can keep up with the beat?"};
+                    "I'll give you rhyme and my prime ramen recipe if you can beat me at the a rhythm game I ripped off.",
+                    };
     npcs.push_back(oldman);
 
     static const char *PN[] = {"KAI", "MIRA", "ROOK", "NOVA", "ZED", "LUNA", "ECHO",
