@@ -68,6 +68,12 @@
 
 // =============================================================
 
+//=========================================================
+
+// GAME SHORCUTS VARIABLES
+
+//=========================================================
+
 // =========================================================
 
 // GAME VARIABLES
@@ -100,11 +106,20 @@
 
 // =========================================================
 
-// BACKGROUND
+// BACKGROUND (old image, no longer drawn: the retro backdrop replaces it)
 
 // =========================================================
 
 // =========================================================
+#include <string>
+#include <iostream>
+
+using namespace std;
+
+int main()
+{
+cout << " a " << endl;
+}
 
 // FONTS
 
@@ -264,6 +279,14 @@
 
 // =========================================================
 
+// RETRO WINDOW (title, character select and dialogue live inside it)
+
+// =========================================================
+
+// overworld + battle stay fullscreen
+
+// =========================================================
+
 // MAIN LOOP
 
 // =========================================================
@@ -275,6 +298,8 @@
 // RHYTHM DELTA TIME
 
 // =====================================================
+
+// retro window: pop animation + what happens when it finishes closing
 
 // time slows while the player is typing in the terminal
 
@@ -304,6 +329,26 @@
 
 // =================================================
 
+//=========================================================
+
+// Shortcuts for testing (Ctrl + number)
+
+// (the old nested pollEvent loop was removed: it swallowed
+
+//  every event after the first one, including mouse clicks)
+
+//=========================================================
+
+// call whatever "close" your screens have, e.g.:
+
+// htmlShooter.close(); grading.close(); results.close();
+
+// Ctrl+number shortcuts: skip the title/select and jump straight to a screen
+
+// overworldS, shiroBattleS, soraEditorS, resultsS, shiroTerminalS:
+
+// same pattern: reset flag, closeAll(), then call that screen's open/start.
+
 // =================================================
 
 // PLEDGE SCREEN + OVERWORLD INPUT
@@ -323,6 +368,10 @@
 // MOUSE
 
 // =================================================
+
+// ---- retro window: close button, clicks on the desktop, scene mapping ----
+
+// scene coordinates (1280x720) when inside the window
 
 // =================================================
 
@@ -414,6 +463,10 @@
 
 // =========================================================
 
+// retro desktop + window frame (title, character select and dialogue are
+
+// drawn through sceneView so they are clipped inside the window)
+
 // =========================================================
 
 // TITLE
@@ -502,7 +555,7 @@
 
 // =====================================================
 
-// NORMAL GAME
+// NORMAL GAME (character select + dialogue, inside the window)
 
 // =====================================================
 
@@ -536,11 +589,9 @@
 
 // =================================================
 
-// =================================================
+// the code editor is drawn after the window view is reset (see below)
 
-// CODE EDITOR
-
-// =================================================
+// back to full-screen coordinates for the editor, CRT lines and stamps
 
 // =========================================================
 

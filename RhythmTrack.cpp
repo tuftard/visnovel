@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 
+
 using namespace std;
 using std::to_string;
 
@@ -11,7 +12,7 @@ RhythmTrack::RhythmTrack() : canvas(sf::Vector2u{CW, CH}) {}
 void RhythmTrack::update(float dt, int playerLane)
 {
     time += dt;
-
+    rain.update(dt);
     for (float &g : laneGlow)
         g = max(0.f, g - dt * 4.f);
 
@@ -262,7 +263,7 @@ void RhythmTrack::drawBackdrop()
     quad({0.f, 0.f}, {fW, 0.f}, {fW, fH}, {0.f, fH},
          sf::Color(36, 22, 70), sf::Color(36, 22, 70),
          sf::Color(10, 12, 30), sf::Color(10, 12, 30));
-
+    rain.draw(canvas);
     sf::Vector2f portal{vanishX, vanishY};
 
     spiral(portal, 10.f, 115.f, 5, 0.060f, -time * 0.45f, 0.8f,

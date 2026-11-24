@@ -2,6 +2,7 @@
 #include "Common.h"
 #include <string>
 #include <vector>
+#include "PixelHud.h"
 
 namespace Theme
 {
@@ -58,6 +59,7 @@ public:
               const sf::Font &font);
 
 private:
+    
     struct Spark
     {
         sf::Vector2f pos;
@@ -73,6 +75,7 @@ private:
     float playerLaneF = 1.f;
     float hurtFlash = 0.f;
     std::vector<Spark> sparks;
+    CodeRain rain{233.f, 207.f};
 
     static constexpr float fW = 233.f;
     static constexpr float fH = 207.f;
